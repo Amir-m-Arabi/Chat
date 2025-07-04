@@ -35,7 +35,30 @@ export async function signIn(req:express.Request , res:express.Response):Promise
                     }
                 ]
             },
+            include:{
+                createChannel:{
+                    select:{
+                        id:true,
+                        channelName:true,
+                        profileURL:true,
+                    }
+                },
+                followChannels:{
+                    select:{
+                        id : true
+                    },
+                    include:{
+                        createChannel:{
+                            select:{
+                                channelName:true,
+                                profileURL:true,
+                            }
+                        }
+                    }
+                }
+            }
         })
+
 
         if (!user){
             return res.status(400).json({message:"user not found"}) 
@@ -102,7 +125,7 @@ export async function updateUser(req:express.Request , res:express.Response):Pro
     }
 
     try{
-        const id = req.user.id
+        const id = req.cookies.userData.id
         const {username , email , password} = req.body
 
         if (!username || !email || !password){
@@ -142,7 +165,7 @@ export async function deleteUser(req:express.Request , res:express.Response):Pro
 
     try{
 
-        const id = req.user.id
+        const id = req.cookies.userData.id
 
         if (!id){
             return res.status(400).json({message:"id is required"})
@@ -174,7 +197,7 @@ export async function getUserById(req:express.Request , res:express.Response):Pr
 
     try{
 
-        const id = req.user.id
+        const id = req.cookies.userData.id
 
         if (!id){
             return res.status(400).json({message:"id is required"})
@@ -206,7 +229,7 @@ export async function forgetPassword(req:express.Request , res:express.Response)
     }
 
     try{
-        const userId = req.user.id
+        const userId = req.cookies.userData.id
         const {email} = req.body
 
         if (!email){
@@ -245,7 +268,7 @@ export async function verifyCode(req:express.Request , res:express.Response):Pro
 
     try{
 
-        const userId = req.user.id
+        const userId = req.cookies.userData.id
         const {code} = req.body
 
         if (!userId){
@@ -283,7 +306,7 @@ export async function resetPassword(req:express.Request , res:express.Response):
 
     try{
 
-        const userId = req.user.id
+        const userId = req.cookies.userData.id
         const {password} = req.body
 
         if (!userId){

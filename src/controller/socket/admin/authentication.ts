@@ -59,9 +59,9 @@ export async function signIn(req:express.Request , res:express.Response):Promise
             return res.status(400).json({message:"username and password are required"})
         }
 
-        const admin = await prisma.admin.findUnique({
+        const admin = await prisma.admin.findFirst({
             where:{
-                username,
+                username
             }
         })
 
@@ -173,7 +173,7 @@ export async function getAdmin(req:express.Request , res:express.Response):Promi
 
     try{
 
-        const adminId = req.admin.id
+        const adminId = req.cookies.adminData.id
 
         if (!adminId){
             return res.status(400).json({message:"admin id is required"})

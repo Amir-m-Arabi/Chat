@@ -26,7 +26,8 @@ model User{
   password String
   email String @unique
   entryCode EntryCode[]
-  channels Channels[]
+  createChannel CreateChannel[]
+  followChannels FollowChannels[]
 }
 
 model EntryCode{
@@ -36,11 +37,21 @@ model EntryCode{
   userId Int
 }
 
-model Channels{
+model CreateChannel{
   id Int @id @default(autoincrement())
   channelName String
-  profileImage String
+  profileURL String
+  description String
   user User @relation(fields: [userId], references: [id])
   userId Int
+  followChannels FollowChannels[]
+}
+
+model FollowChannels{
+  id Int @id @default(autoincrement())
+  user User @relation(fields: [userId], references: [id])
+  userId Int
+  createChannel CreateChannel @relation(fields: [channelId], references: [id])
+  channelId Int
 }
 
