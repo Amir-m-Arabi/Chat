@@ -29,7 +29,47 @@ export function chatHandlers(io: Server, socket: Socket) {
     socket.to(room).emit("receive_message", data);
   });
 
+  socket.on("edit_message" , async(data)=>{
+
+    const message = await prisma.chatContent.findUnique({
+      where: { id: data.id }
+      });
+
+    if (!message) {
+      socket.emit("error", { message: "Message not found" });
+      return;
+    }
+
+    if (message.senderId !== data.userId){
+      socket.emit("error",  {message : "message not found"})
+      return
+    }
+
+
+    const updated = await prisma.chatContent.update({
+      where: { id: Number(data.messageId) },
+      data: {
+        content: data.newContent,
+        isEdited: true
+      }
+    });
+
+
+    const room = `chat_${data.chatId}`;
+      io.to(room).emit("message_edited", {
+      messageId: updated.id,
+      newContent: updated.content,
+      isEdited: updated.isEdited
+    });
+  });
+
+  socket.on("leave_chat" , (chatId)=>{
+    socket.leave(`chat_${chatId}`)
+  });
+
   socket.on("disconnect", () => {
     console.log(`❌ Socket ${socket.id} disconnected`);
   });
 }
+
+

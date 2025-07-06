@@ -69,6 +69,7 @@ model ChatContent{
   chatId Int
   senderId String
   content String
+  isEdit Boolean @default(false)
   createdAt DateTime @default(now())
 }
 

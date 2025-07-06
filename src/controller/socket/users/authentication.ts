@@ -56,12 +56,46 @@ export async function signIn(req:express.Request , res:express.Response):Promise
                         }
                     }
                 }
+
             }
         })
 
 
+
         if (!user){
             return res.status(400).json({message:"user not found"}) 
+        }
+
+        const chats = await prisma.contact.findMany({
+            where:{
+                firstPersonID: String(user.id)
+            },
+            select:{
+                secondPersonID:true
+            }
+        })
+
+        if (chats.length === 0 ){
+            return res.status(400).json({message : ""})
+        }
+
+        const users = await Promise.all(
+            chats.map((prs:any) =>
+                prisma.user.findUnique({
+                    where: {
+                        id: Number(prs.secondPersonID)
+                    },
+                    select: {
+                        id: true,
+                        username: true,
+                        profileURL: true
+                    }
+                })
+            )
+        );
+
+        if (!users){
+            return res.status(400).json({message : ""})
         }
 
         const match = await bcrypt.compare(password, user.password)
@@ -72,7 +106,7 @@ export async function signIn(req:express.Request , res:express.Response):Promise
 
         const token = jwt.sign({id:user.id , type:"USER"}, process.env.JWT_SECRET as string, {expiresIn: '1d'})
 
-        return res.status(200).json({message: "Login successful", token:token , user:{id:user.id , email:user.email , username:user.username}})
+        return res.status(200).json({message: "Login successful", token:token , user , users:users})
 
     }catch(error){
         console.log(error)
