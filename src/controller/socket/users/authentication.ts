@@ -88,10 +88,10 @@ export async function signUp(req:express.Request , res:express.Response):Promise
 
     try{
 
-        const {username , email , password} = req.body
+        const {username , profileURL , email , password} = req.body
 
-        if (!username || !email || !password){
-            return res.status(400).json({message:"username , email and password are required"})
+        if (!username || !email || !password || !profileURL){
+            return res.status(400).json({message:"username , email , password and profileURL are required"})
         }
 
         const hashedPassword = await bcrypt.hash(password, 10)
@@ -101,6 +101,7 @@ export async function signUp(req:express.Request , res:express.Response):Promise
                 username,
                 email,
                 password:hashedPassword,
+                profileURL
             }
         })
 
@@ -126,10 +127,10 @@ export async function updateUser(req:express.Request , res:express.Response):Pro
 
     try{
         const id = req.cookies.userData.id
-        const {username , email , password} = req.body
+        const {username, profileURL , email , password} = req.body
 
-        if (!username || !email || !password){
-            return res.status(400).json({message:"username , email and password are required"})
+        if (!username || !profileURL || !email || !password){
+            return res.status(400).json({message:"username , email , password and profileURL are required"})
         }
 
         const hashedPassword = await bcrypt.hash(password, 10)
@@ -142,6 +143,7 @@ export async function updateUser(req:express.Request , res:express.Response):Pro
                 username,
                 email,
                 password:hashedPassword,
+                profileURL
             }
         })
 

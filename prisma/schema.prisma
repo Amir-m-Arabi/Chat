@@ -25,6 +25,7 @@ model User{
   username String
   password String
   email String @unique
+  profileURL String
   entryCode EntryCode[]
   createChannel CreateChannel[]
   followChannels FollowChannels[]
@@ -54,4 +55,21 @@ model FollowChannels{
   createChannel CreateChannel @relation(fields: [channelId], references: [id])
   channelId Int
 }
+
+model Contact{
+ id Int @id @default(autoincrement())
+ firstPersonID String
+ secondPersonID String
+ chat ChatContent[]
+}
+
+model ChatContent{
+  id Int @id @default(autoincrement())
+  contact Contact @relation(fields:[chatId] , references:[id])
+  chatId Int
+  senderId String
+  content String
+  createdAt DateTime @default(now())
+}
+
 
