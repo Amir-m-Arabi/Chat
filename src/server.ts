@@ -9,7 +9,7 @@ import dotenv from 'dotenv';
 import http from 'http';
 import { Server } from 'socket.io';
 import routes from './routes';
-
+import { registerSocketHandlers } from "./socket";
 
 const app = express();
 
@@ -48,14 +48,7 @@ const io = new Server(server , {
 io.on('connection', (socket) => {
   console.log('✅ New client connected:', socket.id);
 
-  socket.on('chat message', (msg) => {
-    console.log('پیام دریافت شد:', msg);
-    io.emit('chat message', msg);
-  });
-
-  socket.on('disconnect', () => {
-    console.log('❌ Client disconnected:', socket.id);
-  });
+  registerSocketHandlers(io , socket)
 });
 
 server.listen(PORT, () => {

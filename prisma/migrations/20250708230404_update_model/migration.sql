@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE `Group` MODIFY `profileURL` VARCHAR(191) NOT NULL DEFAULT '';

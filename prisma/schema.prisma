@@ -69,8 +69,36 @@ model ChatContent{
   chatId Int
   senderId String
   content String
-  isEdit Boolean @default(false)
+  isEdited Boolean @default(false)
   createdAt DateTime @default(now())
+}
+
+
+model Group{
+  id Int @id @default(autoincrement())
+  groupName String
+  description String @default("")
+  profileURL String @default("")
+  adminId String
+  groupMember GroupMember[]
+  groupChats GroupChats[]
+}
+
+model GroupMember{
+  id Int @id @default(autoincrement())
+  memberId String
+  group Group @relation(fields:[groupId] , references:[id])
+  groupId Int
+}
+
+model GroupChats{
+  id Int @id @default(autoincrement())
+  senderId String
+  content String
+  isEdited Boolean @default(false)
+  createdAt DateTime @default(now())
+  group Group @relation(fields:[groupId] , references:[id])
+  groupId Int
 }
 
 
