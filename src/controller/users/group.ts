@@ -26,7 +26,7 @@ export async function addGroup(
       return res.status(400).json({ message: "" });
     }
 
-    const add_group = await prisma.group.create({
+    await prisma.group.create({
       data: {
         groupName,
         description,
@@ -58,6 +58,7 @@ export async function addGroupMember(
   }
 
   try {
+    const io = req.app.get("io");
     const adminId = req.cookies.userData.id;
 
     if (!adminId) {
@@ -92,6 +93,9 @@ export async function addGroupMember(
           },
         });
       }
+
+      io.to(`group_${groupId}`).emit("members_added", { members: membersId });
+
       return res.status(200).json({ message: "" });
     } else {
       return res.status(400).json({ message: "" });
@@ -112,6 +116,7 @@ export async function addMessage(
   }
 
   try {
+    const io = req.app.get("io");
     const memberId = req.cookies.userData.id;
 
     if (!memberId) {
@@ -139,13 +144,15 @@ export async function addMessage(
 
     for (const member of members) {
       if (member.memberId === String(memberId)) {
-        await prisma.groupChats.create({
+        const message = await prisma.groupChats.create({
           data: {
             senderId: String(memberId),
             content,
             groupId: Number(groupId),
           },
         });
+
+        io.to(`group_${groupId}`).emit("messages_added", { message: message });
 
         return res.status(200).json({ message: "" });
       }
@@ -158,7 +165,7 @@ export async function addMessage(
   }
 }
 
-export async function deleteMessageByAdmin(
+export async function editMessage(
   req: express.Request,
   res: express.Response
 ): Promise<any> {
@@ -168,6 +175,74 @@ export async function deleteMessageByAdmin(
   }
 
   try {
+    const io = req.app.get("io");
+    const senderId = req.cookies.userData.id;
+
+    if (!senderId) {
+      return res.status(400).json({ message: "" });
+    }
+
+    const { groupId, messageId, newContent } = req.body;
+
+    if (!groupId || !messageId || !newContent) {
+      return res.status(400).json({ message: "" });
+    }
+
+    const message = await prisma.groupChats.findUnique({
+      where: {
+        id: Number(messageId),
+        groupId: Number(groupId),
+      },
+      select: {
+        senderId: true,
+      },
+    });
+
+    if (!message) {
+      return res.status(400).json({ message: "" });
+    }
+
+    if (message.senderId !== String(senderId)) {
+      return res.status(400).json({ message: "" });
+    }
+
+    const updated = await prisma.groupChats.update({
+      where: {
+        id: Number(messageId),
+        groupId: Number(groupId),
+      },
+      data: {
+        content: newContent,
+        isEdited: true,
+      },
+    });
+
+    io.to(`group_${groupId}`).emit("message_edited", {
+      data: {
+        messageId: updated.id,
+        newContent: updated.content,
+        isEdited: updated.isEdited,
+      },
+    });
+
+    return res.status(200).json({ message: "" });
+  } catch (error) {
+    console.log(error);
+    return res.status(400).json({ message: "" });
+  }
+}
+
+export async function deleteMessagesByAdmin(
+  req: express.Request,
+  res: express.Response
+): Promise<any> {
+  const error = validationResult(req);
+  if (!error.isEmpty()) {
+    return res.status(400).json({ error: error.array() });
+  }
+
+  try {
+    const io = req.app.get("io");
     const adminId = req.cookies.userData.id;
 
     if (!adminId) {
@@ -202,6 +277,9 @@ export async function deleteMessageByAdmin(
         });
       }
 
+      io.to(`group_${groupId}`).emit("members_removed", {
+        messages: messagesId,
+      });
       return res.status(200).json({ message: "" });
     }
 
@@ -222,6 +300,7 @@ export async function deleteMemberByAdmin(
   }
 
   try {
+    const io = req.app.get("io");
     const adminId = req.cookies.userData.id;
 
     if (!adminId) {
@@ -256,6 +335,8 @@ export async function deleteMemberByAdmin(
         });
       }
 
+      io.to(`group_${groupId}`).emit("members_removed", { members: membersId });
+
       return res.status(200).json({ message: "" });
     }
 
@@ -276,13 +357,14 @@ export async function deleteMemberById(
   }
 
   try {
+    const io = req.app.get("io");
     const memberId = req.cookies.userData.id;
 
     if (!memberId) {
       return res.status(400).json({ message: "" });
     }
 
-    const id = req.params;
+    const { id } = req.params;
 
     if (!id) {
       return res.status(400).json({ message: "" });
@@ -312,26 +394,89 @@ export async function deleteMemberById(
       },
     });
 
+    io.to(`group_${remove.groupId}`).emit("member_removed");
+
     return res.status(200).json({ message: "" });
   } catch (error) {
     return res.status(400).json({ message: "" });
   }
 }
 
-export async function deleteGroup(req: express.Request, res: express.Response) {
+export async function deleteMessageById(
+  req: express.Request,
+  res: express.Response
+): Promise<any> {
   const error = validationResult(req);
   if (!error.isEmpty()) {
     return res.status(400).json({ error: error.array() });
   }
 
   try {
+    const io = req.app.get("io");
+    const senderId = req.cookies.userData.id;
+
+    if (!senderId) {
+      return res.status(400).json({ message: "" });
+    }
+
+    const { groupId, messageId } = req.body;
+
+    if (!groupId || !messageId) {
+      return res.status(400).json({ message: "" });
+    }
+
+    const message = await prisma.groupChats.findUnique({
+      where: {
+        id: Number(messageId),
+        groupId: Number(groupId),
+      },
+      select: {
+        senderId: true,
+      },
+    });
+
+    if (!message) {
+      return res.status(400).json({ message: "" });
+    }
+
+    if (message.senderId !== String(senderId)) {
+      return res.status(400).json({ message: "" });
+    }
+
+    await prisma.groupChats.delete({
+      where: {
+        id: Number(messageId),
+        groupId: Number(groupId),
+      },
+    });
+
+    io.to(`group_${groupId}`).emit("message_deleted", { messageId: messageId });
+
+    return res.status(200).json({ message: "" });
+  } catch (error) {
+    console.log(error);
+    return res.status(400).json({ message: "" });
+  }
+}
+
+export async function deleteGroup(
+  req: express.Request,
+  res: express.Response
+): Promise<any> {
+  const error = validationResult(req);
+  if (!error.isEmpty()) {
+    return res.status(400).json({ error: error.array() });
+  }
+
+  try {
+    const io = req.app.get("io");
     const adminId = req.cookies.userData.id;
 
     if (!adminId) {
       return res.status(400).json({ message: "" });
     }
 
-    const id = req.params;
+    const { id } = req.params;
 
     if (!id) {
       return res.status(400).json({ message: "" });
@@ -347,6 +492,8 @@ export async function deleteGroup(req: express.Request, res: express.Response) {
         groupMember: true,
       },
     });
+
+    io.to(`group_${id}`).emit("group_deleted", { groupId: id });
 
     return res.status(200).json({ message: "" });
   } catch (error) {
@@ -365,7 +512,7 @@ export async function getAllMessage(
   }
 
   try {
-    const groupId = req.params;
+    const { groupId } = req.params;
 
     if (!groupId) {
       return res.status(400).json({ message: "" });
@@ -398,7 +545,7 @@ export async function showBiography(
   }
 
   try {
-    const groupId = req.params;
+    const { groupId } = req.params;
 
     if (!groupId) {
       return res.status(400).json({ message: "" });

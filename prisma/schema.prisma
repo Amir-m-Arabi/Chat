@@ -27,7 +27,6 @@ model User{
   email String @unique
   profileURL String
   entryCode EntryCode[]
-  createChannel CreateChannel[]
   followChannels FollowChannels[]
 }
 
@@ -38,23 +37,50 @@ model EntryCode{
   userId Int
 }
 
+
+
+
+
+
+
 model CreateChannel{
   id Int @id @default(autoincrement())
   channelName String
   profileURL String
   description String
-  user User @relation(fields: [userId], references: [id])
-  userId Int
+  superAdminId String
+  channelAdmins ChannelAdmins[]
   followChannels FollowChannels[]
+  channelContent ChannelContent[]
+}
+
+model ChannelAdmins{
+  id Int @id @default(autoincrement())
+  adminId String
+  createChannel CreateChannel @relation(fields: [channelId], references: [id] , onDelete: Cascade)
+  channelId Int
 }
 
 model FollowChannels{
   id Int @id @default(autoincrement())
   user User @relation(fields: [userId], references: [id])
   userId Int
-  createChannel CreateChannel @relation(fields: [channelId], references: [id])
+  createChannel CreateChannel @relation(fields: [channelId], references: [id] , onDelete: Cascade)
   channelId Int
 }
+
+model ChannelContent{
+  id Int @id @default(autoincrement())
+  senderId String
+  content String
+  createChannel CreateChannel @relation(fields: [channelId], references: [id] , onDelete: Cascade)
+  channelId Int
+  createdAt DateTime @default(now())
+}
+
+
+
+
 
 model Contact{
  id Int @id @default(autoincrement())
@@ -72,6 +98,9 @@ model ChatContent{
   isEdited Boolean @default(false)
   createdAt DateTime @default(now())
 }
+
+
+
 
 
 model Group{

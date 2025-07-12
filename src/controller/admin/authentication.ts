@@ -84,13 +84,11 @@ export async function signIn(
       { expiresIn: "1d" }
     );
 
-    return res
-      .status(200)
-      .json({
-        message: "Login successful",
-        token: token,
-        admin: { id: admin.id, username: admin.username },
-      });
+    return res.status(200).json({
+      message: "Login successful",
+      token: token,
+      admin: { id: admin.id, username: admin.username },
+    });
   } catch (error) {
     console.log(error);
     return res.status(500).json({ message: "something went wrong" });
@@ -130,7 +128,7 @@ export async function signOut(
   }
 }
 
-export async function updateAdmins(
+export async function updateAdmin(
   req: express.Request,
   res: express.Response
 ): Promise<any> {
@@ -203,12 +201,10 @@ export async function getAdmin(
       return res.status(400).json({ message: "admin not found" });
     }
 
-    return res
-      .status(200)
-      .json({
-        message: "Admin found successfully",
-        admin: { id: admin.id, username: admin.username },
-      });
+    return res.status(200).json({
+      message: "Admin found successfully",
+      admin: { id: admin.id, username: admin.username },
+    });
   } catch (error) {
     console.log(error);
     return res.status(500).json({ message: "something went wrong" });

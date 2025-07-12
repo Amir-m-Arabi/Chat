@@ -53,6 +53,7 @@ export async function startContact(
   }
 
   try {
+    const io = req.app.get("io");
     const firstPersonID = req.cookies.userData?.id;
     const { secondPersonID, content } = req.body;
 
@@ -70,7 +71,7 @@ export async function startContact(
     });
 
     // 2. ثبت اولین پیام
-    await prisma.chatContent.create({
+    const message = await prisma.chatContent.create({
       data: {
         senderId: firstPersonID,
         content,
@@ -78,14 +79,132 @@ export async function startContact(
       },
     });
 
+    io.to(`chat_${makeContact.id}`).emit("start_chat", { data: message });
+
     // 3. ریترن به کلاینت
     return res.status(201).json({
       message: "Contact created",
-      chatId: makeContact.id,
+      data: message,
     });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ message: "Server error" });
+  }
+}
+
+export async function sendMessage(
+  req: express.Request,
+  res: express.Response
+): Promise<any> {
+  const error = validationResult(req);
+  if (!error.isEmpty()) {
+    return res.status(400).json({ error: error.array() });
+  }
+
+  try {
+    const io = req.app.get("io");
+    const senderId = req.cookies.userData.ID;
+
+    if (!senderId) {
+      return res.status(400).json({ message: "" });
+    }
+
+    const { content, chatId } = req.body;
+
+    if (!content || !chatId) {
+      return res.status(400).json({ message: "" });
+    }
+
+    const chat = await prisma.contact.findUnique({
+      where: {
+        id: Number(chatId),
+      },
+    });
+
+    if (!chat) {
+      return res.status(400).json({ message: "" });
+    }
+
+    if (
+      chat.firstPersonID === String(senderId) ||
+      chat.secondPersonID === String(senderId)
+    ) {
+      const message = await prisma.chatContent.create({
+        data: {
+          senderId: String(senderId),
+          content,
+          chatId: Number(chatId),
+        },
+      });
+
+      io.to(`chat_${chatId}`).emit("send_message", message);
+
+      return res.status(200).json({ message: "" });
+    }
+
+    return res.status(400).json({ message: "" });
+  } catch (error) {
+    console.log(error);
+    return res.status(400).json({ message: "" });
+  }
+}
+
+export async function editMessage(
+  req: express.Request,
+  res: express.Response
+): Promise<any> {
+  const error = validationResult(req);
+  if (!error.isEmpty()) {
+    return res.status(400).json({ error: error.array() });
+  }
+
+  try {
+    const io = req.app.get("io");
+    const senderId = req.cookies.userData.id;
+
+    if (!senderId) {
+      return res.status(400).json({ message: "" });
+    }
+
+    const { chatId, newContent, messageId } = req.body;
+
+    if (!chatId || !newContent || !messageId) {
+      return res.status(400).json({ message: "" });
+    }
+
+    const chat = await prisma.contact.findUnique({
+      where: {
+        id: Number(chatId),
+      },
+    });
+
+    if (!chat) {
+      return res.status(400).json({ message: "" });
+    }
+
+    if (
+      chat.firstPersonID !== String(senderId) &&
+      chat.secondPersonID !== String(senderId)
+    ) {
+      return res.status(400).json({ message: "" });
+    }
+
+    const newMessage = await prisma.chatContent.update({
+      where: {
+        id: Number(messageId),
+        chatId: Number(chatId),
+      },
+      data: {
+        content: String(newContent),
+        isEdited: true,
+      },
+    });
+
+    io.to(`chat_${chatId}`).emit("message_edited", newMessage);
+    return res.status(200).json({ message: "" });
+  } catch (error) {
+    console.log(error);
+    return res.status(400).json({ message: "" });
   }
 }
 
@@ -99,6 +218,7 @@ export async function deleteContact(
   }
 
   try {
+    const io = req.app.get("io");
     const userId = req.cookies.userData?.id;
     if (!userId) {
       return res.status(401).json({ message: "User not authenticated" });
@@ -135,6 +255,9 @@ export async function deleteContact(
     });
 
     if (theirMessages.length > 0) {
+      io.to(`chat_${chatId}`).emit("user_messages_deleted", {
+        userId: userId,
+      });
       // طرف مقابل هنوز پیام داره → کانتکت باقی می‌مونه
       return res.status(200).json({ message: "Your messages deleted" });
     } else {
@@ -143,6 +266,10 @@ export async function deleteContact(
         where: {
           id: Number(chatId),
         },
+      });
+
+      io.to(`chat_${chatId}`).emit("contact_deleted", {
+        chatId: chatId,
       });
 
       return res.status(200).json({ message: "Contact deleted" });
@@ -163,21 +290,45 @@ export async function deleteChat(
   }
 
   try {
-    const id = req.params;
+    const io = req.app.get("io");
+    const senderId = req.cookies.userData.id;
 
-    if (!id) {
+    if (!senderId) {
       return res.status(400).json({ message: "" });
     }
 
-    const remove = await prisma.chatContent.delete({
+    const { chatId, id } = req.params;
+
+    if (!chatId || !id) {
+      return res.status(400).json({ message: "" });
+    }
+
+    const message = await prisma.chatContent.findUnique({
+      where: {
+        id: Number(id),
+      },
+      select: {
+        senderId: true,
+      },
+    });
+
+    if (!message) {
+      return res.status(400).json({ message: "" });
+    }
+
+    if (message.senderId !== String(senderId)) {
+      return res.status(400).json({ message: "" });
+    }
+
+    await prisma.chatContent.delete({
       where: {
         id: Number(id),
       },
     });
 
-    if (!remove) {
-      return res.status(400).json({ message: "" });
-    }
+    io.to(`chat_${chatId}`).emit("delete_message", {
+      messageId: id,
+    });
 
     return res.status(200).json({ message: "" });
   } catch (error) {
@@ -198,7 +349,7 @@ export async function getAllChatInContact(
   try {
     const userId = req.cookies.userData.id;
 
-    const chatId = req.params;
+    const { chatId } = req.params;
 
     if (!userId) {
       return res.status(400).json({ message: "" });
