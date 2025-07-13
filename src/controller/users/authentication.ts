@@ -20,21 +20,62 @@ export async function signIn(
     const { email = "", username = "", password } = req.body;
 
     if (!password) {
-      return res.status(400).json({ message: "password is required" });
+      return res.status(400).json({ message: "Password is required" });
     }
 
     const user = await prisma.user.findFirst({
       where: {
+        OR: [{ email }, { username }],
+      },
+      select: {
+        id: true,
+        username: true,
+        password: true,
+        email: true,
+        profileURL: true,
+      },
+    });
+
+    if (!user) {
+      return res.status(400).json({ message: "User not found" });
+    }
+
+    const match = await bcrypt.compare(password, user.password);
+    if (!match) {
+      return res.status(400).json({ message: "Password is incorrect" });
+    }
+
+    const token = jwt.sign(
+      { id: user.id, type: "USER" },
+      process.env.JWT_SECRET as string,
+      { expiresIn: "1d" }
+    );
+
+    const userIdStr = String(user.id);
+
+    const createdChannels = await prisma.createChannel.findMany({
+      where: {
         OR: [
+          { superAdminId: userIdStr },
           {
-            email,
-          },
-          {
-            username,
+            channelAdmins: {
+              some: { adminId: userIdStr },
+            },
           },
         ],
       },
-      include: {
+      select: {
+        id: true,
+        channelName: true,
+        profileURL: true,
+      },
+    });
+
+    const followedChannels = await prisma.followChannels.findMany({
+      where: {
+        userId: user.id,
+      },
+      select: {
         createChannel: {
           select: {
             id: true,
@@ -42,45 +83,23 @@ export async function signIn(
             profileURL: true,
           },
         },
-        followChannels: {
-          select: {
-            id: true,
-          },
-          include: {
-            createChannel: {
-              select: {
-                channelName: true,
-                profileURL: true,
-              },
-            },
-          },
-        },
       },
     });
+    const followed = followedChannels.map((f) => f.createChannel);
 
-    if (!user) {
-      return res.status(400).json({ message: "user not found" });
-    }
-
-    const chats = await prisma.contact.findMany({
+    const contacts = await prisma.contact.findMany({
       where: {
-        firstPersonID: String(user.id),
+        firstPersonID: userIdStr,
       },
       select: {
         secondPersonID: true,
       },
     });
 
-    if (chats.length === 0) {
-      return res.status(400).json({ message: "" });
-    }
-
-    const users = await Promise.all(
-      chats.map((prs: any) =>
+    const contactUsers = await Promise.all(
+      contacts.map((contact) =>
         prisma.user.findUnique({
-          where: {
-            id: Number(prs.secondPersonID),
-          },
+          where: { id: Number(contact.secondPersonID) },
           select: {
             id: true,
             username: true,
@@ -90,28 +109,53 @@ export async function signIn(
       )
     );
 
-    if (!users) {
-      return res.status(400).json({ message: "" });
-    }
+    const filteredContacts = contactUsers.filter(Boolean);
 
-    const match = await bcrypt.compare(password, user.password);
+    const createdGroups = await prisma.group.findMany({
+      where: {
+        adminId: userIdStr,
+      },
+      select: {
+        id: true,
+        groupName: true,
+        profileURL: true,
+      },
+    });
 
-    if (!match) {
-      return res.status(400).json({ message: "password is incorrect" });
-    }
+    const memberGroups = await prisma.groupMember.findMany({
+      where: {
+        memberId: userIdStr,
+      },
+      select: {
+        group: {
+          select: {
+            id: true,
+            groupName: true,
+            profileURL: true,
+          },
+        },
+      },
+    });
+    const groupsJoined = memberGroups.map((m) => m.group);
 
-    const token = jwt.sign(
-      { id: user.id, type: "USER" },
-      process.env.JWT_SECRET as string,
-      { expiresIn: "1d" }
-    );
-
-    return res
-      .status(200)
-      .json({ message: "Login successful", token: token, user, users: users });
+    return res.status(200).json({
+      message: "Login successful",
+      token,
+      user: {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        profileURL: user.profileURL,
+      },
+      createdChannels,
+      followedChannels: followed,
+      contacts: filteredContacts,
+      createdGroups,
+      memberGroups: groupsJoined,
+    });
   } catch (error) {
-    console.log(error);
-    return res.status(500).json({ message: "something went wrong" });
+    console.error(error);
+    return res.status(500).json({ message: "Something went wrong" });
   }
 }
 

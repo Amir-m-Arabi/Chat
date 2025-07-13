@@ -560,7 +560,9 @@ export async function showBiography(
       },
     });
 
-    let members = {};
+    let members: {
+      [key: string]: { username: string; profileURL: string } | null;
+    } = {};
     if (!biography) {
       return res.status(400).json({ message: "" });
     }
@@ -578,7 +580,10 @@ export async function showBiography(
       });
 
       if (user) {
-        members = { user };
+        members[user.id] = {
+          username: user.username,
+          profileURL: user.profileURL,
+        };
       }
     }
 

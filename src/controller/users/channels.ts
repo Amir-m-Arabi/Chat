@@ -1,6 +1,7 @@
 import express from "express";
 import { body, validationResult } from "express-validator";
 import { PrismaClient } from "@prisma/client";
+import { resolveSoa } from "dns";
 
 const prisma = new PrismaClient();
 
@@ -235,17 +236,18 @@ export async function getChannel(
 
   try {
     const userId = req.cookies.userData.id;
-
     if (!userId) {
-      return res.status(400).json({ message: "" });
+      return res.status(400).json({ message: "Unauthorized" });
     }
 
     const { id } = req.params;
+    const { before } = req.query;
 
     if (!id) {
       return res.status(400).json({ message: "Channel ID is required" });
     }
 
+    // ✅ 1️⃣ بگیر اطلاعات کانال، شامل Admin و Follows (برای چک)
     const channel = await prisma.createChannel.findUnique({
       where: {
         id: Number(id),
@@ -269,36 +271,67 @@ export async function getChannel(
       return res.status(404).json({ message: "Channel not found" });
     }
 
-    if (
-      channel.superAdminId !== userId &&
-      !channel.channelAdmins.some((admin) => admin.adminId === userId)
-    ) {
+    // ✅ 2️⃣ بساز شرط برای پیام‌ها
+    const contentWhere: any = {
+      channelId: Number(id),
+    };
+
+    if (before) {
+      contentWhere.createdAt = {
+        lt: new Date(before as string)
+      };
+    }
+
+    // ✅ 3️⃣ بگیر پیام‌ها (paginated)
+    const channelContent = await prisma.channelContent.findMany({
+      where: contentWhere,
+      orderBy: {
+        createdAt: 'desc'
+      },
+      take: 50
+    });
+
+    // ✅ 4️⃣ چک کن کاربر ادمین یا سوپرادمینه؟
+    const isAdmin =
+      channel.superAdminId === userId ||
+      channel.channelAdmins.some((admin) => admin.adminId === userId);
+
+    // ✅ 5️⃣ پاسخ برای Admin
+    if (isAdmin) {
+      const followers = channel.followChannels.map((follow: any) => follow.user);
+
       return res.status(200).json({
         message: "Channel fetched successfully",
         data: {
           channelId: channel.id,
           channelName: channel.channelName,
           profileURL: channel.profileURL,
-          descreiption: channel.description,
-        },
+          description: channel.description,
+          superAdminId: channel.superAdminId,
+          admins: channel.channelAdmins,
+          followers: followers,
+          contents: channelContent
+        }
       });
     }
 
-    // استخراج لیست کاربران
-    const followers = channel.followChannels.map((follow: any) => follow.user);
-
+    // ✅ 6️⃣ پاسخ برای کاربر عادی
     return res.status(200).json({
       message: "Channel fetched successfully",
       data: {
-        channel,
-        followers,
-      },
+        channelId: channel.id,
+        channelName: channel.channelName,
+        profileURL: channel.profileURL,
+        description: channel.description,
+        contents: channelContent
+      }
     });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ message: "Something went wrong" });
   }
 }
+
 
 // ========================= Follow Func ===================================
 
@@ -419,26 +452,202 @@ export async function addContent(
       return res.status(400).json({ message: "" });
     }
 
+    let contentsId: { [key: string]: { username: string } | null } = {};
+
     for (const content of contents) {
-      await prisma.channelContent.create({
+      const message = await prisma.channelContent.create({
         data: {
           senderId: String(adminId),
           content,
           channelId: Number(channelId),
         },
       });
+
+      contentsId[message.id] = content;
     }
 
     io.to(`channel_${channelId}`).emit("send messages", {
-      contents,
+      channelId: channelId,
+      contents: contentsId,
     });
 
-    return res.status(400).json({message : ""})
+    return res.status(400).json({ message: "" });
   } catch (error) {
     console.log(error);
     return res.status(400).json({ message: "" });
   }
 }
 
+export async function editContent(
+  req: express.Request,
+  res: express.Response
+): Promise<any> {
+  const error = validationResult(req);
+  if (!error.isEmpty()) {
+    return res.status(400).json({ error: error.array() });
+  }
 
+  try {
+    const io = req.app.get("io");
+    const senderId = req.cookies.userData.id;
 
+    if (!senderId) {
+      return res.status(400).json({ message: "" });
+    }
+
+    const { channelId, newContent, contentId } = req.body;
+
+    if (!channelId || !newContent || !contentId) {
+      return res.status(400).json({ message: "" });
+    }
+
+    const admins = await prisma.createChannel.findUnique({
+      where: {
+        id: Number(channelId),
+      },
+      select: {
+        superAdminId: true,
+        channelAdmins: {
+          select: {
+            adminId: true,
+          },
+        },
+      },
+    });
+
+    if (!admins) {
+      return res.status(400).json({ message: "" });
+    }
+
+    if (
+      admins.superAdminId !== String(senderId) &&
+      !admins.channelAdmins.some((admin) => admin.adminId === String(senderId))
+    ) {
+      return res.status(400).json({ message: "" });
+    }
+
+    await prisma.channelContent.update({
+      where: {
+        id: Number(contentId),
+      },
+      data: {
+        content: newContent,
+      },
+    });
+
+    io.to(`channel_${channelId}`).emit("content edited", {
+      channelId,
+      contentId,
+      newContent,
+    });
+
+    return res.status(200).json({ message: "" });
+  } catch (error) {
+    console.log(error);
+    return res.status(400).json({ message: "" });
+  }
+}
+
+export async function deleteContent(
+  req: express.Request,
+  res: express.Response
+): Promise<any> {
+  const error = validationResult(req);
+  if (!error.isEmpty()) {
+    return res.status(400).json({ message: "" });
+  }
+
+  try {
+    const io = req.app.get("io");
+    const adminId = req.cookies.userData.id;
+
+    if (!adminId) {
+      return res.status(400).json({ message: "" });
+    }
+
+    const { channelId, contentsId } = req.body;
+
+    if (!channelId || !Array.isArray(contentsId) || contentsId.length === 0) {
+      return res.status(400).json({ message: "" });
+    }
+
+    const admins = await prisma.createChannel.findUnique({
+      where: {
+        id: Number(channelId),
+      },
+      select: {
+        superAdminId: true,
+        channelAdmins: {
+          select: {
+            adminId: true,
+          },
+        },
+      },
+    });
+
+    if (!admins) {
+      return res.status(400).json({ message: "" });
+    }
+
+    if (
+      admins.superAdminId !== String(adminId) &&
+      !admins.channelAdmins.some((admin) => admin.adminId === String(adminId))
+    ) {
+      return res.status(400).json({ message: "" });
+    }
+
+    for (const contentId of contentsId) {
+      await prisma.channelContent.delete({
+        where: {
+          id: Number(contentId),
+        },
+      });
+    }
+
+    io.to(`channel_${channelId}`).emit("content deleted", {
+      channelId: channelId,
+      contentsId: contentsId,
+    });
+
+    return res.status(200).json({ message: "" });
+  } catch (error) {
+    console.log(error);
+    return res.status(400).json({ message: "" });
+  }
+}
+
+export async function searchInChannel(
+  req: express.Request,
+  res: express.Response
+): Promise<any> {
+  const error = validationResult(req);
+  if (!error.isEmpty()) {
+    return res.status(400).json({ error: error.array() });
+  }
+
+  try {
+    const { channelId, value } = req.body;
+
+    if (!channelId || !value || value.trim() === "") {
+      return res.status(400).json({ message: "Invalid request" });
+    }
+
+    const contents = await prisma.channelContent.findMany({
+      where: {
+        channelId: Number(channelId),
+        content: {
+          contains: value,
+        },
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+      take: 50,
+    });
+
+    return res.status(200).json({ message: "Results found", data: contents });
+  } catch (error) {
+    console.log(error);
+    return res.status(500).json({ message: "Something went wrong" });
+  }
+}
