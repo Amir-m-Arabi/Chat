@@ -8,6 +8,7 @@ import {
   deleteContact,
   editMessage,
   sendMessage,
+  searchInChannel,
 } from "../../controller/users/contact";
 import {
   musicUpload,
@@ -44,4 +45,5 @@ export default (router: express.Router) => {
   router.delete("/delete-contact/:chatId", authenticateUser, deleteContact);
   router.delete("/delete-chat/:id", authenticateUser, deleteChat);
   router.get("/get-all-chat/:chatId", authenticateUser, getAllChatInContact);
+  router.get("/search-message", authenticateUser, searchInChannel);
 };

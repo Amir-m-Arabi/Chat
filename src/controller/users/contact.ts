@@ -519,3 +519,66 @@ export async function getAllChatInContact(
     return res.status(400).json({ message: "" });
   }
 }
+
+export async function searchInChannel(
+  req: express.Request,
+  res: express.Response
+): Promise<any> {
+  const error = validationResult(req);
+  if (!error.isEmpty()) {
+    return res.status(400).json({ error: error.array() });
+  }
+
+  try {
+    const userId = req.cookies.userData.id;
+
+    if (!userId) {
+      return res.status(400).json({ message: "" });
+    }
+
+    const { chatId, value } = req.body;
+
+    if (!chatId || !value || value.trim() === "") {
+      return res.status(400).json({ message: "Invalid request" });
+    }
+
+    const chat = await prisma.contact.findUnique({
+      where: {
+        id: Number(chatId),
+      },
+      select: {
+        firstPersonID: true,
+        secondPersonID: true,
+      },
+    });
+
+    if (!chat) {
+      return res.status(400).json({ message: "" });
+    }
+
+    if (
+      chat.firstPersonID !== String(userId) &&
+      chat.secondPersonID !== String(userId)
+    ) {
+      return res.status(400).json({ message: "" });
+    }
+
+    const contents = await prisma.chatContent.findMany({
+      where: {
+        chatId: Number(chatId),
+        content: {
+          contains: value,
+        },
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+      take: 50,
+    });
+
+    return res.status(200).json({ message: "Results found", data: contents });
+  } catch (error) {
+    console.log(error);
+    return res.status(500).json({ message: "Something went wrong" });
+  }
+}
