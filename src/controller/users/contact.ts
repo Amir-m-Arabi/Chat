@@ -1,7 +1,8 @@
-import express, { response } from "express";
+import express from "express";
 import { body, validationResult } from "express-validator";
 import { PrismaClient } from "@prisma/client";
-import { Server, Socket } from "socket.io";
+import fs from "fs";
+import path from "path";
 
 const prisma = new PrismaClient();
 
@@ -55,13 +56,18 @@ export async function startContact(
   try {
     const io = req.app.get("io");
     const firstPersonID = req.cookies.userData?.id;
-    const { secondPersonID, content } = req.body;
+    const {
+      secondPersonID,
+      content = "",
+      videos = [],
+      images = [],
+      audios = [],
+    } = req.body;
 
-    if (!firstPersonID || !secondPersonID || !content) {
-      return res.status(400).json({ message: "Missing fields" });
+    if (!firstPersonID || !secondPersonID) {
+      return res.status(400).json({ message: "Missing user IDs" });
     }
 
-    // 1. ایجاد Contact
     const makeContact = await prisma.contact.create({
       data: {
         firstPersonID,
@@ -70,18 +76,30 @@ export async function startContact(
       select: { id: true },
     });
 
-    // 2. ثبت اولین پیام
     const message = await prisma.chatContent.create({
       data: {
         senderId: firstPersonID,
         content,
         chatId: makeContact.id,
+        video: videos.length
+          ? { create: videos.map((url: string) => ({ videoURL: url })) }
+          : undefined,
+        image: images.length
+          ? { create: images.map((url: string) => ({ imageURL: url })) }
+          : undefined,
+        audio: audios.length
+          ? { create: audios.map((url: string) => ({ audioURL: url })) }
+          : undefined,
+      },
+      include: {
+        video: true,
+        image: true,
+        audio: true,
       },
     });
 
     io.to(`chat_${makeContact.id}`).emit("start_chat", { data: message });
 
-    // 3. ریترن به کلاینت
     return res.status(201).json({
       message: "Contact created",
       data: message,
@@ -103,49 +121,70 @@ export async function sendMessage(
 
   try {
     const io = req.app.get("io");
-    const senderId = req.cookies.userData.ID;
+    const senderId = req.cookies.userData?.id;
 
     if (!senderId) {
-      return res.status(400).json({ message: "" });
+      return res.status(401).json({ message: "Unauthorized" });
     }
 
-    const { content, chatId } = req.body;
+    const {
+      content = "",
+      chatId,
+      videos = [],
+      images = [],
+      audios = [],
+    } = req.body;
 
-    if (!content || !chatId) {
-      return res.status(400).json({ message: "" });
+    if (!chatId) {
+      return res.status(400).json({ message: "chatId is required" });
     }
 
     const chat = await prisma.contact.findUnique({
-      where: {
-        id: Number(chatId),
-      },
+      where: { id: Number(chatId) },
     });
 
     if (!chat) {
-      return res.status(400).json({ message: "" });
+      return res.status(404).json({ message: "Chat not found" });
     }
 
     if (
-      chat.firstPersonID === String(senderId) ||
-      chat.secondPersonID === String(senderId)
+      chat.firstPersonID !== String(senderId) &&
+      chat.secondPersonID !== String(senderId)
     ) {
-      const message = await prisma.chatContent.create({
-        data: {
-          senderId: String(senderId),
-          content,
-          chatId: Number(chatId),
-        },
-      });
-
-      io.to(`chat_${chatId}`).emit("send_message", message);
-
-      return res.status(200).json({ message: "" });
+      return res.status(403).json({ message: "Forbidden" });
     }
 
-    return res.status(400).json({ message: "" });
+    const message = await prisma.chatContent.create({
+      data: {
+        senderId: String(senderId),
+        content,
+        chatId: Number(chatId),
+        video: videos.length
+          ? { create: videos.map((url: string) => ({ videoURL: url })) }
+          : undefined,
+        image: images.length
+          ? { create: images.map((url: string) => ({ imageURL: url })) }
+          : undefined,
+        audio: audios.length
+          ? { create: audios.map((url: string) => ({ audioURL: url })) }
+          : undefined,
+      },
+      include: {
+        video: true,
+        image: true,
+        audio: true,
+      },
+    });
+
+    io.to(`chat_${chatId}`).emit("send_message", message);
+
+    return res.status(200).json({
+      message: "Message sent",
+      data: message,
+    });
   } catch (error) {
-    console.log(error);
-    return res.status(400).json({ message: "" });
+    console.error(error);
+    return res.status(500).json({ message: "Something went wrong" });
   }
 }
 
@@ -160,51 +199,127 @@ export async function editMessage(
 
   try {
     const io = req.app.get("io");
-    const senderId = req.cookies.userData.id;
+    const senderId = req.cookies.userData?.id;
 
     if (!senderId) {
-      return res.status(400).json({ message: "" });
+      return res.status(401).json({ message: "Unauthorized" });
     }
 
-    const { chatId, newContent, messageId } = req.body;
+    const { chatId, messageId, newContent, videos, images, audios } = req.body;
 
-    if (!chatId || !newContent || !messageId) {
-      return res.status(400).json({ message: "" });
+    if (!chatId || !messageId) {
+      return res
+        .status(400)
+        .json({ message: "chatId and messageId are required" });
     }
 
     const chat = await prisma.contact.findUnique({
-      where: {
-        id: Number(chatId),
-      },
+      where: { id: Number(chatId) },
     });
 
     if (!chat) {
-      return res.status(400).json({ message: "" });
+      return res.status(404).json({ message: "Chat not found" });
     }
 
     if (
       chat.firstPersonID !== String(senderId) &&
       chat.secondPersonID !== String(senderId)
     ) {
-      return res.status(400).json({ message: "" });
+      return res.status(403).json({ message: "Forbidden" });
     }
 
-    const newMessage = await prisma.chatContent.update({
-      where: {
-        id: Number(messageId),
-        chatId: Number(chatId),
-      },
-      data: {
-        content: String(newContent),
-        isEdited: true,
+    const uploadsBase = path.join(__dirname, "..", "uploads");
+
+    // ✅ متن
+    if (newContent !== undefined && newContent !== null) {
+      await prisma.chatContent.update({
+        where: { id: Number(messageId) },
+        data: { content: String(newContent), isEdited: true },
+      });
+    }
+
+    // ✅ ویدیو
+    if (videos && videos.length > 0) {
+      for (const video of videos) {
+        const oldVideo = await prisma.video.findUnique({
+          where: { id: Number(video.id) },
+        });
+
+        if (oldVideo && oldVideo.videoURL !== video.videoURL) {
+          const oldPath = path.join(uploadsBase, oldVideo.videoURL);
+          fs.unlink(oldPath, (err) => {
+            if (err) console.error("Error deleting old video:", err);
+          });
+        }
+
+        await prisma.video.update({
+          where: { id: Number(video.id) },
+          data: { videoURL: video.videoURL },
+        });
+      }
+    }
+
+    // ✅ تصاویر
+    if (images && images.length > 0) {
+      for (const image of images) {
+        const oldImage = await prisma.image.findUnique({
+          where: { id: Number(image.id) },
+        });
+
+        if (oldImage && oldImage.imageURL !== image.imageURL) {
+          const oldPath = path.join(uploadsBase, oldImage.imageURL);
+          fs.unlink(oldPath, (err) => {
+            if (err) console.error("Error deleting old image:", err);
+          });
+        }
+
+        await prisma.image.update({
+          where: { id: Number(image.id) },
+          data: { imageURL: image.imageURL },
+        });
+      }
+    }
+
+    // ✅ موزیک
+    if (audios && audios.length > 0) {
+      for (const audio of audios) {
+        const oldAudio = await prisma.audio.findUnique({
+          where: { id: Number(audio.id) },
+        });
+
+        if (oldAudio && oldAudio.audioURL !== audio.audioURL) {
+          const oldPath = path.join(uploadsBase, oldAudio.audioURL);
+          fs.unlink(oldPath, (err) => {
+            if (err) console.error("Error deleting old audio:", err);
+          });
+        }
+
+        await prisma.audio.update({
+          where: { id: Number(audio.id) },
+          data: { audioURL: audio.audioURL },
+        });
+      }
+    }
+
+    // ✅ پاسخ کامل
+    const updatedMessage = await prisma.chatContent.findUnique({
+      where: { id: Number(messageId) },
+      include: {
+        video: true,
+        image: true,
+        audio: true,
       },
     });
 
-    io.to(`chat_${chatId}`).emit("message_edited", newMessage);
-    return res.status(200).json({ message: "" });
+    io.to(`chat_${chatId}`).emit("message_edited", updatedMessage);
+
+    return res.status(200).json({
+      message: "Message updated",
+      data: updatedMessage,
+    });
   } catch (error) {
-    console.log(error);
-    return res.status(400).json({ message: "" });
+    console.error(error);
+    return res.status(500).json({ message: "Something went wrong" });
   }
 }
 
@@ -258,10 +373,8 @@ export async function deleteContact(
       io.to(`chat_${chatId}`).emit("user_messages_deleted", {
         userId: userId,
       });
-      // طرف مقابل هنوز پیام داره → کانتکت باقی می‌مونه
       return res.status(200).json({ message: "Your messages deleted" });
     } else {
-      // هیچ پیام دیگه‌ای باقی نمونده → کانتکت رو هم حذف کن
       await prisma.contact.delete({
         where: {
           id: Number(chatId),
@@ -291,49 +404,74 @@ export async function deleteChat(
 
   try {
     const io = req.app.get("io");
-    const senderId = req.cookies.userData.id;
+    const senderId = req.cookies.userData?.id;
 
     if (!senderId) {
-      return res.status(400).json({ message: "" });
+      return res.status(401).json({ message: "Unauthorized" });
     }
 
     const { chatId, id } = req.params;
 
     if (!chatId || !id) {
-      return res.status(400).json({ message: "" });
+      return res
+        .status(400)
+        .json({ message: "chatId and messageId are required" });
     }
 
     const message = await prisma.chatContent.findUnique({
-      where: {
-        id: Number(id),
-      },
-      select: {
-        senderId: true,
+      where: { id: Number(id) },
+      include: {
+        video: true,
+        image: true,
+        audio: true,
       },
     });
 
     if (!message) {
-      return res.status(400).json({ message: "" });
+      return res.status(404).json({ message: "Message not found" });
     }
 
     if (message.senderId !== String(senderId)) {
-      return res.status(400).json({ message: "" });
+      return res
+        .status(403)
+        .json({ message: "You can only delete your own messages" });
+    }
+
+    const uploadsBase = path.join(__dirname, "..", "uploads");
+
+    for (const vid of message.video) {
+      const videoPath = path.join(uploadsBase, vid.videoURL);
+      fs.unlink(videoPath, (err) => {
+        if (err) console.error("Error deleting video:", err);
+      });
+    }
+
+    for (const img of message.image) {
+      const imagePath = path.join(uploadsBase, img.imageURL);
+      fs.unlink(imagePath, (err) => {
+        if (err) console.error("Error deleting image:", err);
+      });
+    }
+
+    for (const aud of message.audio) {
+      const audioPath = path.join(uploadsBase, aud.audioURL);
+      fs.unlink(audioPath, (err) => {
+        if (err) console.error("Error deleting audio:", err);
+      });
     }
 
     await prisma.chatContent.delete({
-      where: {
-        id: Number(id),
-      },
+      where: { id: Number(id) },
     });
 
     io.to(`chat_${chatId}`).emit("delete_message", {
       messageId: id,
     });
 
-    return res.status(200).json({ message: "" });
+    return res.status(200).json({ message: "Message deleted successfully" });
   } catch (error) {
-    console.log(error);
-    return res.status(400).json({ message: "" });
+    console.error(error);
+    return res.status(500).json({ message: "Something went wrong" });
   }
 }
 
@@ -358,6 +496,11 @@ export async function getAllChatInContact(
     const messages = await prisma.chatContent.findMany({
       where: {
         chatId: Number(chatId),
+      },
+      include: {
+        video: true,
+        image: true,
+        audio: true,
       },
     });
 

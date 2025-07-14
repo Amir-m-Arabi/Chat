@@ -81,26 +81,7 @@ model ChannelContent{
   createdAt DateTime @default(now())
 }
 
-model Video{
-  id Int @id @default(autoincrement())
-  videoURL String
-  channelContent ChannelContent @relation(fields: [contentId], references: [id] , onDelete: Cascade)
-  contentId Int
-}
 
-model Image{
-  id Int @id @default(autoincrement())
-  imageURL String
-  channelContent ChannelContent @relation(fields: [contentId], references: [id] , onDelete: Cascade)
-  contentId Int
-}
-
-model Audio{
-  id Int @id @default(autoincrement())
-  audioURL String
-  channelContent ChannelContent @relation(fields: [contentId], references: [id] , onDelete: Cascade)
-  contentId Int
-}
 
 
 
@@ -119,6 +100,9 @@ model ChatContent{
   chatId Int
   senderId String
   content String
+  video Video[]
+  image Image[]
+  audio Audio[]
   isEdited Boolean @default(false)
   createdAt DateTime @default(now())
 }
@@ -155,3 +139,31 @@ model GroupChats{
 }
 
 
+
+
+model Video{
+  id Int @id @default(autoincrement())
+  videoURL String
+  channelContent ChannelContent @relation(fields: [contentId], references: [id] , onDelete: Cascade)
+  contentId Int
+  chatContent ChatContent @relation(fields: [chatId], references: [id] , onDelete: Cascade)
+  chatId Int
+}
+
+model Image{
+  id Int @id @default(autoincrement())
+  imageURL String
+  channelContent ChannelContent @relation(fields: [contentId], references: [id] , onDelete: Cascade)
+  contentId Int
+  chatContent ChatContent @relation(fields: [chatId], references: [id] , onDelete: Cascade)
+  chatId Int
+}
+
+model Audio{
+  id Int @id @default(autoincrement())
+  audioURL String
+  channelContent ChannelContent @relation(fields: [contentId], references: [id] , onDelete: Cascade)
+  contentId Int
+  chatContent ChatContent @relation(fields: [chatId], references: [id] , onDelete: Cascade)
+  chatId Int
+}
