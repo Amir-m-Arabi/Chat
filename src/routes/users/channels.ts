@@ -14,13 +14,43 @@ import {
   searchInChannel,
 } from "../../controller/users/channels";
 
+import {
+  profileUpload,
+  musicUpload,
+  videoUpload,
+} from "../../helpers/uploadConfig";
+
 export default (router: express.Router) => {
-  router.post("/create-channel", authenticateUser, createChannel);
+  router.post(
+    "/create-channel",
+    authenticateUser,
+    profileUpload.single("file"),
+    createChannel
+  );
   router.post("/add-admin", authenticateUser, addAdminToChannel);
-  router.post("/add-content", authenticateUser, addContent);
+  router.post(
+    "/add-content",
+    authenticateUser,
+    profileUpload.single("file"),
+    videoUpload.single("file"),
+    musicUpload.single("file"),
+    addContent
+  );
   router.post("/follow-channel/:channelId", authenticateUser, addFollowChannel);
-  router.put("/update-channel/:id", authenticateUser, biographyEdited);
-  router.put("/edit-content", authenticateUser, editContent);
+  router.put(
+    "/update-channel/:id",
+    authenticateUser,
+    profileUpload.single("file"),
+    biographyEdited
+  );
+  router.put(
+    "/edit-content",
+    authenticateUser,
+    profileUpload.single("file"),
+    videoUpload.single("file"),
+    musicUpload.single("file"),
+    editContent
+  );
   router.delete("delete-channel/:id", authenticateUser, deleteChannel);
   router.delete("/follow-channel/:id", authenticateUser, deleteFollow);
   router.delete("/delete-content", authenticateUser, deleteContent);

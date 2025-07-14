@@ -72,10 +72,34 @@ model FollowChannels{
 model ChannelContent{
   id Int @id @default(autoincrement())
   senderId String
-  content String
+  content String @default("")
+  video Video[]
+  image Image[]
+  audio Audio[]
   createChannel CreateChannel @relation(fields: [channelId], references: [id] , onDelete: Cascade)
   channelId Int
   createdAt DateTime @default(now())
+}
+
+model Video{
+  id Int @id @default(autoincrement())
+  videoURL String
+  channelContent ChannelContent @relation(fields: [contentId], references: [id] , onDelete: Cascade)
+  contentId Int
+}
+
+model Image{
+  id Int @id @default(autoincrement())
+  imageURL String
+  channelContent ChannelContent @relation(fields: [contentId], references: [id] , onDelete: Cascade)
+  contentId Int
+}
+
+model Audio{
+  id Int @id @default(autoincrement())
+  audioURL String
+  channelContent ChannelContent @relation(fields: [contentId], references: [id] , onDelete: Cascade)
+  contentId Int
 }
 
 

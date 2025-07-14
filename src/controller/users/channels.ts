@@ -17,23 +17,29 @@ export async function createChannel(
   try {
     const userId = req.cookies.userData.id;
 
-    const { profileURL, channelName, description } = req.body;
-
     if (!userId) {
       return res.status(400).json({ message: "" });
     }
 
-    if (!profileURL || !channelName || !description) {
+    const { profileURL = "", channelName, description } = req.body;
+
+    if (!channelName || !description) {
       return res.status(400).json({ message: "" });
     }
 
+    const channel: any = {
+      channelName,
+      profileURL,
+      description,
+      superAdminId: String(userId),
+    };
+
+    if (req.file) {
+      channel.profileURL = `/uploads/profile/${req.file.filename}`;
+    }
+
     await prisma.createChannel.create({
-      data: {
-        channelName,
-        profileURL,
-        description,
-        superAdminId: String(userId),
-      },
+      data: channel,
     });
 
     return res.status(200).json({ message: "" });
@@ -119,7 +125,7 @@ export async function biographyEdited(
 
     const { profileURL = "", channelName, description = "" } = req.body;
 
-    if (!profileURL || !channelName || !description) {
+    if (!channelName || !description) {
       return res.status(400).json({ message: "" });
     }
 
@@ -145,15 +151,20 @@ export async function biographyEdited(
       return res.status(400).json({ message: "Unauthorized" });
     }
 
+    const biographyData: any = {
+      channelName,
+      description,
+    };
+
+    if (req.file) {
+      biographyData.profileURL = `/uploads/profile/${req.file.filename}`;
+    }
+
     const update_channel = await prisma.createChannel.update({
       where: {
         id: Number(id),
       },
-      data: {
-        channelName,
-        profileURL,
-        description,
-      },
+      data: biographyData,
       select: {
         channelName: true,
         profileURL: true,
@@ -247,7 +258,6 @@ export async function getChannel(
       return res.status(400).json({ message: "Channel ID is required" });
     }
 
-    // ✅ 1️⃣ بگیر اطلاعات کانال، شامل Admin و Follows (برای چک)
     const channel = await prisma.createChannel.findUnique({
       where: {
         id: Number(id),
@@ -271,14 +281,13 @@ export async function getChannel(
       return res.status(404).json({ message: "Channel not found" });
     }
 
-    // ✅ 2️⃣ بساز شرط برای پیام‌ها
     const contentWhere: any = {
       channelId: Number(id),
     };
 
     if (before) {
       contentWhere.createdAt = {
-        lt: new Date(before as string)
+        lt: new Date(before as string),
       };
     }
 
@@ -286,19 +295,24 @@ export async function getChannel(
     const channelContent = await prisma.channelContent.findMany({
       where: contentWhere,
       orderBy: {
-        createdAt: 'desc'
+        createdAt: "desc",
       },
-      take: 50
+      take: 50,
+      include: {
+        video: true,
+        audio: true,
+        image: true,
+      },
     });
 
-    // ✅ 4️⃣ چک کن کاربر ادمین یا سوپرادمینه؟
     const isAdmin =
       channel.superAdminId === userId ||
       channel.channelAdmins.some((admin) => admin.adminId === userId);
 
-    // ✅ 5️⃣ پاسخ برای Admin
     if (isAdmin) {
-      const followers = channel.followChannels.map((follow: any) => follow.user);
+      const followers = channel.followChannels.map(
+        (follow: any) => follow.user
+      );
 
       return res.status(200).json({
         message: "Channel fetched successfully",
@@ -310,12 +324,11 @@ export async function getChannel(
           superAdminId: channel.superAdminId,
           admins: channel.channelAdmins,
           followers: followers,
-          contents: channelContent
-        }
+          contents: channelContent,
+        },
       });
     }
 
-    // ✅ 6️⃣ پاسخ برای کاربر عادی
     return res.status(200).json({
       message: "Channel fetched successfully",
       data: {
@@ -323,15 +336,14 @@ export async function getChannel(
         channelName: channel.channelName,
         profileURL: channel.profileURL,
         description: channel.description,
-        contents: channelContent
-      }
+        contents: channelContent,
+      },
     });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ message: "Something went wrong" });
   }
 }
-
 
 // ========================= Follow Func ===================================
 
@@ -418,63 +430,78 @@ export async function addContent(
     const adminId = req.cookies.userData.id;
 
     if (!adminId) {
-      return res.status(400).json({ message: "" });
+      return res.status(401).json({ message: "Unauthorized" });
     }
 
-    const { contents, channelId } = req.body;
+    const { content = "", channelId, videos, images, audios } = req.body;
 
-    if (!Array.isArray(contents) || !channelId) {
-      return res.status(400).json({ message: "" });
+    if (!channelId) {
+      return res.status(400).json({ message: "channelId is required" });
     }
 
+    // Check permissions
     const channel = await prisma.createChannel.findUnique({
-      where: {
-        id: Number(channelId),
-      },
+      where: { id: Number(channelId) },
       select: {
         superAdminId: true,
-        channelAdmins: {
-          select: {
-            adminId: true,
-          },
-        },
+        channelAdmins: { select: { adminId: true } },
       },
     });
 
     if (!channel) {
-      return res.status(400).json({ message: "" });
+      return res.status(404).json({ message: "Channel not found" });
     }
 
     if (
       channel.superAdminId !== String(adminId) &&
       !channel.channelAdmins.some((admin) => admin.adminId === String(adminId))
     ) {
-      return res.status(400).json({ message: "" });
+      return res.status(403).json({ message: "Forbidden" });
     }
 
-    let contentsId: { [key: string]: { username: string } | null } = {};
+    const createData: any = {
+      senderId: String(adminId),
+      content,
+      channelId: Number(channelId),
+    };
 
-    for (const content of contents) {
-      const message = await prisma.channelContent.create({
-        data: {
-          senderId: String(adminId),
-          content,
-          channelId: Number(channelId),
-        },
-      });
-
-      contentsId[message.id] = content;
+    if (videos && videos.length > 0) {
+      createData.video = {
+        create: videos.map((url: any) => ({ videoURL: url })),
+      };
     }
 
-    io.to(`channel_${channelId}`).emit("send messages", {
-      channelId: channelId,
-      contents: contentsId,
+    if (images && images.length > 0) {
+      createData.image = {
+        create: images.map((url: any) => ({ imageURL: url })),
+      };
+    }
+
+    if (audios && audios.length > 0) {
+      createData.audio = {
+        create: audios.map((url: any) => ({ audioURL: url })),
+      };
+    }
+
+    // Create
+    const message = await prisma.channelContent.create({
+      data: createData,
+      include: {
+        video: true,
+        image: true,
+        audio: true,
+      },
     });
 
-    return res.status(400).json({ message: "" });
+    io.to(`channel_${channelId}`).emit("send messages", { message });
+
+    return res.status(201).json({
+      message: "Content created",
+      data: message,
+    });
   } catch (error) {
     console.log(error);
-    return res.status(400).json({ message: "" });
+    return res.status(500).json({ message: "Something went wrong" });
   }
 }
 
@@ -492,59 +519,79 @@ export async function editContent(
     const senderId = req.cookies.userData.id;
 
     if (!senderId) {
-      return res.status(400).json({ message: "" });
+      return res.status(401).json({ message: "Unauthorized" });
     }
 
-    const { channelId, newContent, contentId } = req.body;
+    const { channelId, contentId, newContent, videos, images, audios } =
+      req.body;
 
-    if (!channelId || !newContent || !contentId) {
-      return res.status(400).json({ message: "" });
+    if (!contentId) {
+      return res.status(400).json({ message: "contentId is required" });
     }
 
     const admins = await prisma.createChannel.findUnique({
-      where: {
-        id: Number(channelId),
-      },
+      where: { id: Number(channelId) },
       select: {
         superAdminId: true,
-        channelAdmins: {
-          select: {
-            adminId: true,
-          },
-        },
+        channelAdmins: { select: { adminId: true } },
       },
     });
-
-    if (!admins) {
-      return res.status(400).json({ message: "" });
-    }
 
     if (
-      admins.superAdminId !== String(senderId) &&
-      !admins.channelAdmins.some((admin) => admin.adminId === String(senderId))
+      !admins ||
+      (admins.superAdminId !== String(senderId) &&
+        !admins.channelAdmins.some((a) => a.adminId === String(senderId)))
     ) {
-      return res.status(400).json({ message: "" });
+      return res.status(403).json({ message: "Forbidden" });
     }
 
-    await prisma.channelContent.update({
-      where: {
-        id: Number(contentId),
-      },
-      data: {
-        content: newContent,
-      },
-    });
+    if (newContent !== undefined && newContent !== null) {
+      await prisma.channelContent.update({
+        where: { id: Number(contentId) },
+        data: { content: newContent },
+      });
+    }
+
+    if (videos && videos.length > 0) {
+      for (const video of videos) {
+        await prisma.video.update({
+          where: { id: Number(video.id) },
+          data: { videoURL: video.videoURL },
+        });
+      }
+    }
+
+    if (images && images.length > 0) {
+      for (const image of images) {
+        await prisma.image.update({
+          where: { id: Number(image.id) },
+          data: { imageURL: image.imageURL },
+        });
+      }
+    }
+
+    if (audios && audios.length > 0) {
+      for (const audio of audios) {
+        await prisma.audio.update({
+          where: { id: Number(audio.id) },
+          data: { audioURL: audio.audioURL },
+        });
+      }
+    }
 
     io.to(`channel_${channelId}`).emit("content edited", {
       channelId,
       contentId,
       newContent,
+      videos,
+      images,
+      audios,
     });
 
-    return res.status(200).json({ message: "" });
+    return res.status(200).json({ message: "Content updated" });
   } catch (error) {
-    console.log(error);
-    return res.status(400).json({ message: "" });
+    console.error(error);
+    return res.status(500).json({ message: "Something went wrong" });
   }
 }
 
@@ -554,7 +601,7 @@ export async function deleteContent(
 ): Promise<any> {
   const error = validationResult(req);
   if (!error.isEmpty()) {
-    return res.status(400).json({ message: "" });
+    return res.status(400).json({ error: error.array() });
   }
 
   try {
@@ -562,57 +609,64 @@ export async function deleteContent(
     const adminId = req.cookies.userData.id;
 
     if (!adminId) {
-      return res.status(400).json({ message: "" });
+      return res.status(401).json({ message: "Unauthorized" });
     }
 
     const { channelId, contentsId } = req.body;
 
     if (!channelId || !Array.isArray(contentsId) || contentsId.length === 0) {
-      return res.status(400).json({ message: "" });
-    }
-
-    const admins = await prisma.createChannel.findUnique({
-      where: {
-        id: Number(channelId),
-      },
-      select: {
-        superAdminId: true,
-        channelAdmins: {
-          select: {
-            adminId: true,
-          },
-        },
-      },
-    });
-
-    if (!admins) {
-      return res.status(400).json({ message: "" });
-    }
-
-    if (
-      admins.superAdminId !== String(adminId) &&
-      !admins.channelAdmins.some((admin) => admin.adminId === String(adminId))
-    ) {
-      return res.status(400).json({ message: "" });
-    }
-
-    for (const contentId of contentsId) {
-      await prisma.channelContent.delete({
-        where: {
-          id: Number(contentId),
-        },
+      return res.status(400).json({
+        message: "channelId and contentsId array are required",
       });
     }
 
-    io.to(`channel_${channelId}`).emit("content deleted", {
-      channelId: channelId,
-      contentsId: contentsId,
+    const channel = await prisma.createChannel.findUnique({
+      where: { id: Number(channelId) },
+      select: {
+        superAdminId: true,
+        channelAdmins: { select: { adminId: true } },
+      },
     });
 
-    return res.status(200).json({ message: "" });
+    if (!channel) {
+      return res.status(404).json({ message: "Channel not found" });
+    }
+
+    const isAdmin =
+      channel.superAdminId === String(adminId) ||
+      channel.channelAdmins.some((admin) => admin.adminId === String(adminId));
+
+    if (!isAdmin) {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    const contentsWithMedia = await prisma.channelContent.findMany({
+      where: {
+        id: { in: contentsId.map(Number) },
+      },
+      select: {
+        id: true,
+        video: { select: { id: true, videoURL: true } },
+        image: { select: { id: true, imageURL: true } },
+        audio: { select: { id: true, audioURL: true } },
+      },
+    });
+
+    await prisma.channelContent.deleteMany({
+      where: { id: { in: contentsId.map(Number) } },
+    });
+
+    io.to(`channel_${channelId}`).emit("content deleted", {
+      channelId,
+      deletedContents: contentsWithMedia,
+    });
+
+    return res.status(200).json({
+      message: "Contents deleted successfully",
+    });
   } catch (error) {
-    console.log(error);
-    return res.status(400).json({ message: "" });
+    console.error(error);
+    return res.status(500).json({ message: "Something went wrong" });
   }
 }
 
