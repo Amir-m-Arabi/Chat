@@ -1,7 +1,8 @@
 import express from "express";
 import { body, validationResult } from "express-validator";
 import { PrismaClient } from "@prisma/client";
-import { resolveSoa } from "dns";
+import fs from "fs";
+import path from "path";
 
 const prisma = new PrismaClient();
 
@@ -554,6 +555,17 @@ export async function editContent(
 
     if (videos && videos.length > 0) {
       for (const video of videos) {
+        const oldVideo = await prisma.video.findUnique({
+          where: { id: Number(video.id) },
+        });
+
+        if (oldVideo && oldVideo.videoURL !== video.videoURL) {
+          const oldPath = path.join(__dirname, "..", oldVideo.videoURL);
+          fs.unlink(oldPath, (err) => {
+            if (err) console.error("Error deleting old video:", err);
+          });
+        }
+
         await prisma.video.update({
           where: { id: Number(video.id) },
           data: { videoURL: video.videoURL },
@@ -563,6 +575,17 @@ export async function editContent(
 
     if (images && images.length > 0) {
       for (const image of images) {
+        const oldImage = await prisma.image.findUnique({
+          where: { id: Number(image.id) },
+        });
+
+        if (oldImage && oldImage.imageURL !== image.imageURL) {
+          const oldPath = path.join(__dirname, "..", oldImage.imageURL);
+          fs.unlink(oldPath, (err) => {
+            if (err) console.error("Error deleting old image:", err);
+          });
+        }
+
         await prisma.image.update({
           where: { id: Number(image.id) },
           data: { imageURL: image.imageURL },
@@ -572,6 +595,17 @@ export async function editContent(
 
     if (audios && audios.length > 0) {
       for (const audio of audios) {
+        const oldAudio = await prisma.audio.findUnique({
+          where: { id: Number(audio.id) },
+        });
+
+        if (oldAudio && oldAudio.audioURL !== audio.audioURL) {
+          const oldPath = path.join(__dirname, "..", oldAudio.audioURL);
+          fs.unlink(oldPath, (err) => {
+            if (err) console.error("Error deleting old audio:", err);
+          });
+        }
+
         await prisma.audio.update({
           where: { id: Number(audio.id) },
           data: { audioURL: audio.audioURL },
@@ -651,6 +685,29 @@ export async function deleteContent(
         audio: { select: { id: true, audioURL: true } },
       },
     });
+
+    for (const content of contentsWithMedia) {
+      for (const vid of content.video) {
+        const filePath = path.join(__dirname, "..", vid.videoURL);
+        fs.unlink(filePath, (err) => {
+          if (err) console.error("Error deleting video:", err);
+        });
+      }
+
+      for (const img of content.image) {
+        const filePath = path.join(__dirname, "..", img.imageURL);
+        fs.unlink(filePath, (err) => {
+          if (err) console.error("Error deleting image:", err);
+        });
+      }
+
+      for (const aud of content.audio) {
+        const filePath = path.join(__dirname, "..", aud.audioURL);
+        fs.unlink(filePath, (err) => {
+          if (err) console.error("Error deleting audio:", err);
+        });
+      }
+    }
 
     await prisma.channelContent.deleteMany({
       where: { id: { in: contentsId.map(Number) } },
