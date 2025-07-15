@@ -3,6 +3,7 @@ import { body, validationResult } from "express-validator";
 import { PrismaClient } from "@prisma/client";
 import fs from "fs";
 import path from "path";
+import { create } from "domain";
 
 const prisma = new PrismaClient();
 
@@ -62,6 +63,7 @@ export async function startContact(
       videos = [],
       images = [],
       audios = [],
+      files = [],
     } = req.body;
 
     if (!firstPersonID || !secondPersonID) {
@@ -90,11 +92,15 @@ export async function startContact(
         audio: audios.length
           ? { create: audios.map((url: string) => ({ audioURL: url })) }
           : undefined,
+        file: files.length
+          ? { create: files.map((url: string) => ({ fileURL: url })) }
+          : undefined,
       },
       include: {
         video: true,
         image: true,
         audio: true,
+        file: true,
       },
     });
 
@@ -133,6 +139,7 @@ export async function sendMessage(
       videos = [],
       images = [],
       audios = [],
+      files = [],
     } = req.body;
 
     if (!chatId) {
@@ -168,11 +175,15 @@ export async function sendMessage(
         audio: audios.length
           ? { create: audios.map((url: string) => ({ audioURL: url })) }
           : undefined,
+        file: files.length
+          ? { create: files.map((url: string) => ({ fileURL: url })) }
+          : undefined,
       },
       include: {
         video: true,
         image: true,
         audio: true,
+        file: true,
       },
     });
 
@@ -205,7 +216,8 @@ export async function editMessage(
       return res.status(401).json({ message: "Unauthorized" });
     }
 
-    const { chatId, messageId, newContent, videos, images, audios } = req.body;
+    const { chatId, messageId, newContent, videos, images, audios, files } =
+      req.body;
 
     if (!chatId || !messageId) {
       return res
@@ -230,7 +242,6 @@ export async function editMessage(
 
     const uploadsBase = path.join(__dirname, "..", "uploads");
 
-    // ✅ متن
     if (newContent !== undefined && newContent !== null) {
       await prisma.chatContent.update({
         where: { id: Number(messageId) },
@@ -238,7 +249,6 @@ export async function editMessage(
       });
     }
 
-    // ✅ ویدیو
     if (videos && videos.length > 0) {
       for (const video of videos) {
         const oldVideo = await prisma.video.findUnique({
@@ -259,7 +269,6 @@ export async function editMessage(
       }
     }
 
-    // ✅ تصاویر
     if (images && images.length > 0) {
       for (const image of images) {
         const oldImage = await prisma.image.findUnique({
@@ -280,7 +289,6 @@ export async function editMessage(
       }
     }
 
-    // ✅ موزیک
     if (audios && audios.length > 0) {
       for (const audio of audios) {
         const oldAudio = await prisma.audio.findUnique({
@@ -301,13 +309,33 @@ export async function editMessage(
       }
     }
 
-    // ✅ پاسخ کامل
+    if (files && files.length > 0) {
+      for (const file of files) {
+        const oldFile = await prisma.file.findUnique({
+          where: { id: Number(file.id) },
+        });
+
+        if (oldFile && oldFile.fileURL !== file.fileURL) {
+          const oldPath = path.join(uploadsBase, oldFile.fileURL);
+          fs.unlink(oldPath, (err) => {
+            if (err) console.error("Error deleting old audio:", err);
+          });
+        }
+
+        await prisma.file.update({
+          where: { id: Number(file.id) },
+          data: { fileURL: file.fileURL },
+        });
+      }
+    }
+
     const updatedMessage = await prisma.chatContent.findUnique({
       where: { id: Number(messageId) },
       include: {
         video: true,
         image: true,
         audio: true,
+        file: true,
       },
     });
 
@@ -356,12 +384,10 @@ export async function deleteContact(
         .json({ message: "No messages found for this chat" });
     }
 
-    // جدا کردن پیام‌های طرف مقابل
     const theirMessages = messages.filter(
       (msg: any) => msg.senderId !== userId
     );
 
-    // حذف پیام‌های خود کاربر
     await prisma.chatContent.deleteMany({
       where: {
         chatId: Number(chatId),
@@ -424,6 +450,7 @@ export async function deleteChat(
         video: true,
         image: true,
         audio: true,
+        file: true,
       },
     });
 
@@ -456,6 +483,13 @@ export async function deleteChat(
     for (const aud of message.audio) {
       const audioPath = path.join(uploadsBase, aud.audioURL);
       fs.unlink(audioPath, (err) => {
+        if (err) console.error("Error deleting audio:", err);
+      });
+    }
+
+    for (const file of message.file) {
+      const filePath = path.join(uploadsBase, file.fileURL);
+      fs.unlink(filePath, (err) => {
         if (err) console.error("Error deleting audio:", err);
       });
     }
@@ -501,6 +535,7 @@ export async function getAllChatInContact(
         video: true,
         image: true,
         audio: true,
+        file: true,
       },
     });
 
@@ -569,6 +604,12 @@ export async function searchInChannel(
         content: {
           contains: value,
         },
+      },
+      include: {
+        video: true,
+        image: true,
+        audio: true,
+        file: true,
       },
       orderBy: {
         createdAt: "desc",
