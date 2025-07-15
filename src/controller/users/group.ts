@@ -3,6 +3,7 @@ import { body, validationResult } from "express-validator";
 import { PrismaClient } from "@prisma/client";
 import fs from "fs";
 import path from "path";
+import { create } from "domain";
 
 const prisma = new PrismaClient();
 
@@ -125,7 +126,7 @@ export async function addMessage(
       return res.status(400).json({ message: "Unauthorized" });
     }
 
-    const { groupId, content = "", videos, images, audios } = req.body;
+    const { groupId, content = "", videos, images, audios, files } = req.body;
 
     if (!groupId) {
       return res.status(400).json({ message: "groupId is required" });
@@ -182,12 +183,19 @@ export async function addMessage(
       };
     }
 
+    if (files && files.length > 0) {
+      createData.file = {
+        create: files.map((url: any) => ({ fileURL: url })),
+      };
+    }
+
     const message = await prisma.groupChats.create({
       data: createData,
       include: {
         video: true,
         image: true,
         audio: true,
+        file: true,
       },
     });
 
@@ -217,7 +225,8 @@ export async function editMessage(
       return res.status(400).json({ message: "" });
     }
 
-    const { groupId, messageId, newContent, videos, images, audios } = req.body;
+    const { groupId, messageId, newContent, videos, images, audios, files } =
+      req.body;
 
     if (!groupId || !messageId) {
       return res.status(400).json({ message: "" });
@@ -308,13 +317,34 @@ export async function editMessage(
       }
     }
 
-    io.to(`channel_${groupId}`).emit("content edited", {
+    if (files && files.length > 0) {
+      for (const file of files) {
+        const oldFile = await prisma.file.findUnique({
+          where: { id: Number(file.id) },
+        });
+
+        if (oldFile && oldFile.fileURL !== file.fileURL) {
+          const oldPath = path.join(__dirname, "..", oldFile.fileURL);
+          fs.unlink(oldPath, (err) => {
+            if (err) console.error("Error deleting old audio:", err);
+          });
+        }
+
+        await prisma.file.update({
+          where: { id: Number(file.id) },
+          data: { fileURL: file.fileURL },
+        });
+      }
+    }
+
+    io.to(`group${groupId}`).emit("content edited", {
       groupId,
       messageId,
       newContent,
       videos,
       images,
       audios,
+      files,
     });
 
     return res.status(200).json({ message: "" });
@@ -373,6 +403,7 @@ export async function deleteMessagesByAdmin(
         video: { select: { id: true, videoURL: true } },
         image: { select: { id: true, imageURL: true } },
         audio: { select: { id: true, audioURL: true } },
+        file: { select: { id: true, fileURL: true } },
       },
     });
 
@@ -397,19 +428,23 @@ export async function deleteMessagesByAdmin(
           if (err) console.error("Error deleting audio:", err);
         });
       }
+
+      for (const file of content.file) {
+        const filePath = path.join(__dirname, "..", file.fileURL);
+        fs.unlink(filePath, (err) => {
+          if (err) console.error("Error deleting audio:", err);
+        });
+      }
     }
 
     await prisma.channelContent.deleteMany({
       where: { id: { in: messagesId.map(Number) } },
     });
 
-    io.to(`channel_${groupId}`).emit("content deleted", {
+    io.to(`group_${groupId}`).emit("messages_deleted", {
+      messages: messagesId,
       groupId,
       deletedContents: contentsWithMedia,
-    });
-
-    io.to(`group_${groupId}`).emit("members_removed", {
-      messages: messagesId,
     });
     return res.status(200).json({ message: "" });
   } catch (error) {
@@ -571,6 +606,51 @@ export async function deleteMessageById(
       return res.status(400).json({ message: "" });
     }
 
+    const content = await prisma.groupChats.findUnique({
+      where: {
+        id: Number(messageId),
+        groupId: Number(groupId),
+      },
+      select: {
+        video: { select: { id: true, videoURL: true } },
+        image: { select: { id: true, imageURL: true } },
+        audio: { select: { id: true, audioURL: true } },
+        file: { select: { id: true, fileURL: true } },
+      },
+    });
+
+    if (!content) {
+      return res.status(400).json({ message: "" });
+    }
+
+    for (const vid of content.video) {
+      const filePath = path.join(__dirname, "..", vid.videoURL);
+      fs.unlink(filePath, (err) => {
+        if (err) console.error("Error deleting video:", err);
+      });
+    }
+
+    for (const img of content.image) {
+      const filePath = path.join(__dirname, "..", img.imageURL);
+      fs.unlink(filePath, (err) => {
+        if (err) console.error("Error deleting image:", err);
+      });
+    }
+
+    for (const aud of content.audio) {
+      const filePath = path.join(__dirname, "..", aud.audioURL);
+      fs.unlink(filePath, (err) => {
+        if (err) console.error("Error deleting audio:", err);
+      });
+    }
+
+    for (const file of content.file) {
+      const filePath = path.join(__dirname, "..", file.fileURL);
+      fs.unlink(filePath, (err) => {
+        if (err) console.error("Error deleting audio:", err);
+      });
+    }
+
     await prisma.groupChats.delete({
       where: {
         id: Number(messageId),
@@ -578,7 +658,11 @@ export async function deleteMessageById(
       },
     });
 
-    io.to(`group_${groupId}`).emit("message_deleted", { messageId: messageId });
+    io.to(`group_${groupId}`).emit("message_deleted", {
+      messageId: messageId,
+      groupId: groupId,
+      deleteContent: content,
+    });
 
     return res.status(200).json({ message: "" });
   } catch (error) {
