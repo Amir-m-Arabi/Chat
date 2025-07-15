@@ -7,11 +7,10 @@ import group from "./users/group";
 
 const router = express.Router();
 
-export default (): express.Router => {
-  adminAuthentication(router);
-  userAuthentication(router);
-  channels(router);
-  contact(router);
-  group(router);
-  return router;
-};
+router.use("/group", group);
+router.use("/contact", contact);
+router.use("/channel", channels);
+router.use("/adminAuthentication", adminAuthentication);
+router.use("/userAuthentication", userAuthentication);
+
+export default router;

@@ -29,13 +29,19 @@ export async function addGroup(
       return res.status(400).json({ message: "" });
     }
 
+    const group: any = {
+      groupName,
+      description,
+      profileURL,
+      adminId: String(adminId),
+    };
+
+    if (req.file) {
+      group.profileURL = `/uploads/profile/${req.file.filename}`;
+    }
+
     await prisma.group.create({
-      data: {
-        groupName,
-        description,
-        profileURL,
-        adminId: String(adminId),
-      },
+      data: group,
     });
 
     return res.status(200).json({
@@ -79,6 +85,9 @@ export async function addGroupMember(
         id: Number(groupId),
       },
       select: {
+        id: true,
+        groupName: true,
+        profileURL: true,
         adminId: true,
       },
     });
@@ -97,7 +106,13 @@ export async function addGroupMember(
         });
       }
 
-      io.to(`group_${groupId}`).emit("members_added", { members: membersId });
+      io.to(`group_${groupId}`).emit("members_added", {
+        members: membersId,
+        groupId: group.id,
+        groupName: group.groupName,
+        groupProfile: group.profileURL,
+        groupAdmin: group.adminId,
+      });
 
       return res.status(200).json({ message: "" });
     } else {
@@ -808,7 +823,7 @@ export async function showBiography(
   }
 }
 
-export async function searchInChannel(
+export async function searchInGroup(
   req: express.Request,
   res: express.Response
 ): Promise<any> {

@@ -555,7 +555,7 @@ export async function getAllChatInContact(
   }
 }
 
-export async function searchInChannel(
+export async function searchInChat(
   req: express.Request,
   res: express.Response
 ): Promise<any> {
