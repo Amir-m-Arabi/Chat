@@ -2,8 +2,7 @@ import multer from "multer";
 import path from "path";
 import fs from "fs";
 
-// ✅ فیلتر عکس
-const imageFilter: multer.Options['fileFilter'] = (req, file, cb) => {
+const imageFilter: multer.Options["fileFilter"] = (req, file, cb) => {
   if (file.mimetype.startsWith("image/")) {
     cb(null, true);
   } else {
@@ -11,8 +10,7 @@ const imageFilter: multer.Options['fileFilter'] = (req, file, cb) => {
   }
 };
 
-// ✅ فیلتر ویدیو
-const videoFilter: multer.Options['fileFilter'] = (req, file, cb) => {
+const videoFilter: multer.Options["fileFilter"] = (req, file, cb) => {
   if (file.mimetype.startsWith("video/")) {
     cb(null, true);
   } else {
@@ -20,8 +18,7 @@ const videoFilter: multer.Options['fileFilter'] = (req, file, cb) => {
   }
 };
 
-// ✅ فیلتر موزیک
-const audioFilter: multer.Options['fileFilter'] = (req, file, cb) => {
+const audioFilter: multer.Options["fileFilter"] = (req, file, cb) => {
   if (file.mimetype.startsWith("audio/")) {
     cb(null, true);
   } else {
@@ -29,8 +26,35 @@ const audioFilter: multer.Options['fileFilter'] = (req, file, cb) => {
   }
 };
 
-// ✅ ساخت استوریج عمومی
-function makeStorage(folder: string, fileFilter?: multer.Options['fileFilter']) {
+const generalFileFilter: multer.Options["fileFilter"] = (req, file, cb) => {
+  const allowedMimes = [
+    "application/pdf",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+
+    "application/vnd.ms-excel",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+
+    "application/vnd.ms-powerpoint",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+
+    "application/zip",
+    "application/x-rar-compressed",
+
+    "text/plain",
+  ];
+
+  if (allowedMimes.includes(file.mimetype)) {
+    cb(null, true);
+  } else {
+    cb(new Error("Unsupported file type!"));
+  }
+};
+
+function makeStorage(
+  folder: string,
+  fileFilter?: multer.Options["fileFilter"]
+) {
   const storage = multer.diskStorage({
     destination: (req, file, cb) => {
       const uploadPath = path.join(__dirname, "..", "uploads", folder);
@@ -39,7 +63,9 @@ function makeStorage(folder: string, fileFilter?: multer.Options['fileFilter']) 
     },
     filename: (req, file, cb) => {
       const ext = path.extname(file.originalname);
-      const uniqueName = `${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`;
+      const uniqueName = `${Date.now()}-${Math.round(
+        Math.random() * 1e9
+      )}${ext}`;
       cb(null, uniqueName);
     },
   });
@@ -47,7 +73,7 @@ function makeStorage(folder: string, fileFilter?: multer.Options['fileFilter']) 
   return multer({ storage, fileFilter });
 }
 
-// ✅ اکسپورت آپلودرها
 export const profileUpload = makeStorage("profile", imageFilter);
 export const videoUpload = makeStorage("video", videoFilter);
 export const musicUpload = makeStorage("music", audioFilter);
+export const fileUpload = makeStorage("file", generalFileFilter);

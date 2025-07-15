@@ -76,6 +76,7 @@ model ChannelContent{
   video Video[]
   image Image[]
   audio Audio[]
+  file File[]
   createChannel CreateChannel @relation(fields: [channelId], references: [id] , onDelete: Cascade)
   channelId Int
   createdAt DateTime @default(now())
@@ -103,6 +104,7 @@ model ChatContent{
   video Video[]
   image Image[]
   audio Audio[]
+  file File[]
   isEdited Boolean @default(false)
   createdAt DateTime @default(now())
 }
@@ -136,6 +138,7 @@ model GroupChats{
   video Video[]
   image Image[]
   audio Audio[]
+  file File[]
   createdAt DateTime @default(now())
   group Group @relation(fields:[groupId] , references:[id])
   groupId Int
@@ -169,6 +172,17 @@ model Image{
 model Audio{
   id Int @id @default(autoincrement())
   audioURL String
+  channelContent ChannelContent @relation(fields: [contentId], references: [id] , onDelete: Cascade)
+  contentId Int
+  chatContent ChatContent @relation(fields: [chatId], references: [id] , onDelete: Cascade)
+  chatId Int
+  groupChats GroupChats @relation(fields: [groupChatId], references: [id] , onDelete: Cascade)
+  groupChatId Int
+}
+
+model File {
+  id         Int    @id @default(autoincrement())
+  fileURL    String
   channelContent ChannelContent @relation(fields: [contentId], references: [id] , onDelete: Cascade)
   contentId Int
   chatContent ChatContent @relation(fields: [chatId], references: [id] , onDelete: Cascade)

@@ -3,6 +3,7 @@ import { body, validationResult } from "express-validator";
 import { PrismaClient } from "@prisma/client";
 import fs from "fs";
 import path from "path";
+import { create } from "domain";
 
 const prisma = new PrismaClient();
 
@@ -434,7 +435,7 @@ export async function addContent(
       return res.status(401).json({ message: "Unauthorized" });
     }
 
-    const { content = "", channelId, videos, images, audios } = req.body;
+    const { content = "", channelId, videos, images, audios, files } = req.body;
 
     if (!channelId) {
       return res.status(400).json({ message: "channelId is required" });
@@ -484,12 +485,19 @@ export async function addContent(
       };
     }
 
+    if (files && files.length > 0) {
+      createData.file = {
+        create: files.map((url: any) => ({ fileURL: url })),
+      };
+    }
+
     const message = await prisma.channelContent.create({
       data: createData,
       include: {
         video: true,
         image: true,
         audio: true,
+        file: true,
       },
     });
 
@@ -522,7 +530,7 @@ export async function editContent(
       return res.status(401).json({ message: "Unauthorized" });
     }
 
-    const { channelId, contentId, newContent, videos, images, audios } =
+    const { channelId, contentId, newContent, videos, images, audios, files } =
       req.body;
 
     if (!contentId || !channelId) {
@@ -612,6 +620,26 @@ export async function editContent(
       }
     }
 
+    if (files && FileSystem.length > 0) {
+      for (const file of files) {
+        const oldFile = await prisma.audio.findUnique({
+          where: { id: Number(file.id) },
+        });
+
+        if (oldFile && oldFile.audioURL !== file.audioURL) {
+          const oldPath = path.join(__dirname, "..", oldFile.audioURL);
+          fs.unlink(oldPath, (err) => {
+            if (err) console.error("Error deleting old audio:", err);
+          });
+        }
+
+        await prisma.file.update({
+          where: { id: Number(file.id) },
+          data: { fileURL: file.fileURL },
+        });
+      }
+    }
+
     io.to(`channel_${channelId}`).emit("content edited", {
       channelId,
       contentId,
@@ -619,6 +647,7 @@ export async function editContent(
       videos,
       images,
       audios,
+      files,
     });
 
     return res.status(200).json({ message: "Content updated" });
@@ -682,6 +711,7 @@ export async function deleteContent(
         video: { select: { id: true, videoURL: true } },
         image: { select: { id: true, imageURL: true } },
         audio: { select: { id: true, audioURL: true } },
+        file: { select: { id: true, fileURL: true } },
       },
     });
 
@@ -702,6 +732,13 @@ export async function deleteContent(
 
       for (const aud of content.audio) {
         const filePath = path.join(__dirname, "..", aud.audioURL);
+        fs.unlink(filePath, (err) => {
+          if (err) console.error("Error deleting audio:", err);
+        });
+      }
+
+      for (const file of content.file) {
+        const filePath = path.join(__dirname, "..", file.fileURL);
         fs.unlink(filePath, (err) => {
           if (err) console.error("Error deleting audio:", err);
         });
@@ -748,6 +785,12 @@ export async function searchInChannel(
         content: {
           contains: value,
         },
+      },
+      include: {
+        video: true,
+        audio: true,
+        image: true,
+        file: true,
       },
       orderBy: {
         createdAt: "desc",
