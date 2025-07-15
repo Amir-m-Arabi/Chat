@@ -595,3 +595,77 @@ export async function showBiography(
     return res.status(400).json({ message: "" });
   }
 }
+
+export async function searchInChannel(
+  req: express.Request,
+  res: express.Response
+): Promise<any> {
+  const error = validationResult(req);
+  if (!error.isEmpty()) {
+    return res.status(400).json({ error: error.array() });
+  }
+
+  try {
+    const userId = req.cookies.userData.id;
+
+    if (!userId) {
+      return res.status(400).json({ message: "" });
+    }
+
+    const { groupId, value } = req.body;
+
+    if (!groupId || !value || value.trim() === "") {
+      return res.status(400).json({ message: "Invalid request" });
+    }
+
+    const members = await prisma.group.findUnique({
+      where: {
+        id: Number(groupId),
+      },
+      select: {
+        adminId: true,
+        groupMember: {
+          select: {
+            memberId: true,
+          },
+        },
+      },
+    });
+
+    if (!members) {
+      return res.status(400).json({ message: "" });
+    }
+
+    if (
+      members.adminId !== String(userId) &&
+      !members.groupMember.some(
+        (memberId) => memberId.memberId === String(userId)
+      )
+    ) {
+      return res.status(400).json({ message: "" });
+    }
+
+    const contents = await prisma.groupChats.findMany({
+      where: {
+        groupId: Number(groupId),
+        content: {
+          contains: value,
+        },
+      },
+      include: {
+        video: true,
+        image: true,
+        audio: true,
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+      take: 50,
+    });
+
+    return res.status(200).json({ message: "Results found", data: contents });
+  } catch (error) {
+    console.log(error);
+    return res.status(500).json({ message: "Something went wrong" });
+  }
+}

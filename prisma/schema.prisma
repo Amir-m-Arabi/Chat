@@ -133,6 +133,9 @@ model GroupChats{
   senderId String
   content String
   isEdited Boolean @default(false)
+  video Video[]
+  image Image[]
+  audio Audio[]
   createdAt DateTime @default(now())
   group Group @relation(fields:[groupId] , references:[id])
   groupId Int
@@ -148,6 +151,8 @@ model Video{
   contentId Int
   chatContent ChatContent @relation(fields: [chatId], references: [id] , onDelete: Cascade)
   chatId Int
+  groupChats GroupChats @relation(fields: [groupChatId], references: [id] , onDelete: Cascade)
+  groupChatId Int
 }
 
 model Image{
@@ -157,6 +162,8 @@ model Image{
   contentId Int
   chatContent ChatContent @relation(fields: [chatId], references: [id] , onDelete: Cascade)
   chatId Int
+  groupChats GroupChats @relation(fields: [groupChatId], references: [id] , onDelete: Cascade)
+  groupChatId Int
 }
 
 model Audio{
@@ -166,4 +173,6 @@ model Audio{
   contentId Int
   chatContent ChatContent @relation(fields: [chatId], references: [id] , onDelete: Cascade)
   chatId Int
+  groupChats GroupChats @relation(fields: [groupChatId], references: [id] , onDelete: Cascade)
+  groupChatId Int
 }
