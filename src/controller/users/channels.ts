@@ -484,7 +484,6 @@ export async function addContent(
       };
     }
 
-    // Create
     const message = await prisma.channelContent.create({
       data: createData,
       include: {
@@ -526,7 +525,7 @@ export async function editContent(
     const { channelId, contentId, newContent, videos, images, audios } =
       req.body;
 
-    if (!contentId) {
+    if (!contentId || !channelId) {
       return res.status(400).json({ message: "contentId is required" });
     }
 

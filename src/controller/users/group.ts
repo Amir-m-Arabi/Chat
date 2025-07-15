@@ -1,6 +1,8 @@
 import express from "express";
 import { body, validationResult } from "express-validator";
 import { PrismaClient } from "@prisma/client";
+import fs from "fs";
+import path from "path";
 
 const prisma = new PrismaClient();
 
@@ -117,24 +119,29 @@ export async function addMessage(
 
   try {
     const io = req.app.get("io");
-    const memberId = req.cookies.userData.id;
+    const userId = req.cookies.userData.id;
 
-    if (!memberId) {
-      return res.status(400).json({ message: "" });
+    if (!userId) {
+      return res.status(400).json({ message: "Unauthorized" });
     }
 
-    const { groupId, content } = req.body;
+    const { groupId, content = "", videos, images, audios } = req.body;
 
-    if (!groupId || !content) {
-      return res.status(400).json({ message: "" });
+    if (!groupId) {
+      return res.status(400).json({ message: "groupId is required" });
     }
 
-    const members = await prisma.groupMember.findMany({
+    const members = await prisma.group.findUnique({
       where: {
-        groupId: Number(groupId),
+        id: Number(groupId),
       },
       select: {
-        memberId: true,
+        adminId: true,
+        groupMember: {
+          select: {
+            memberId: true,
+          },
+        },
       },
     });
 
@@ -142,23 +149,51 @@ export async function addMessage(
       return res.status(400).json({ message: "" });
     }
 
-    for (const member of members) {
-      if (member.memberId === String(memberId)) {
-        const message = await prisma.groupChats.create({
-          data: {
-            senderId: String(memberId),
-            content,
-            groupId: Number(groupId),
-          },
-        });
-
-        io.to(`group_${groupId}`).emit("messages_added", { message: message });
-
-        return res.status(200).json({ message: "" });
-      }
+    if (
+      members.adminId !== String(userId) &&
+      !members.groupMember.some(
+        (memberId) => memberId.memberId === String(userId)
+      )
+    ) {
+      return res.status(400).json({ message: "" });
     }
 
-    return res.status(400).json({ message: "" });
+    const createData: any = {
+      senderId: String(userId),
+      content,
+      channelId: Number(groupId),
+    };
+
+    if (videos && videos.length > 0) {
+      createData.video = {
+        create: videos.map((url: any) => ({ videoURL: url })),
+      };
+    }
+
+    if (images && images.length > 0) {
+      createData.image = {
+        create: images.map((url: any) => ({ imageURL: url })),
+      };
+    }
+
+    if (audios && audios.length > 0) {
+      createData.audio = {
+        create: audios.map((url: any) => ({ audioURL: url })),
+      };
+    }
+
+    const message = await prisma.groupChats.create({
+      data: createData,
+      include: {
+        video: true,
+        image: true,
+        audio: true,
+      },
+    });
+
+    io.to(`group_${groupId}`).emit("messages_added", { message: message });
+
+    return res.status(200).json({ message: "" });
   } catch (error) {
     console.log(error);
     return res.status(400).json({ message: "" });
@@ -182,9 +217,9 @@ export async function editMessage(
       return res.status(400).json({ message: "" });
     }
 
-    const { groupId, messageId, newContent } = req.body;
+    const { groupId, messageId, newContent, videos, images, audios } = req.body;
 
-    if (!groupId || !messageId || !newContent) {
+    if (!groupId || !messageId) {
       return res.status(400).json({ message: "" });
     }
 
@@ -206,23 +241,80 @@ export async function editMessage(
       return res.status(400).json({ message: "" });
     }
 
-    const updated = await prisma.groupChats.update({
-      where: {
-        id: Number(messageId),
-        groupId: Number(groupId),
-      },
-      data: {
-        content: newContent,
-        isEdited: true,
-      },
-    });
+    if (newContent !== undefined && newContent !== null) {
+      await prisma.channelContent.update({
+        where: { id: Number(messageId) },
+        data: { content: newContent },
+      });
+    }
 
-    io.to(`group_${groupId}`).emit("message_edited", {
-      data: {
-        messageId: updated.id,
-        newContent: updated.content,
-        isEdited: updated.isEdited,
-      },
+    if (videos && videos.length > 0) {
+      for (const video of videos) {
+        const oldVideo = await prisma.video.findUnique({
+          where: { id: Number(video.id) },
+        });
+
+        if (oldVideo && oldVideo.videoURL !== video.videoURL) {
+          const oldPath = path.join(__dirname, "..", oldVideo.videoURL);
+          fs.unlink(oldPath, (err) => {
+            if (err) console.error("Error deleting old video:", err);
+          });
+        }
+
+        await prisma.video.update({
+          where: { id: Number(video.id) },
+          data: { videoURL: video.videoURL },
+        });
+      }
+    }
+
+    if (images && images.length > 0) {
+      for (const image of images) {
+        const oldImage = await prisma.image.findUnique({
+          where: { id: Number(image.id) },
+        });
+
+        if (oldImage && oldImage.imageURL !== image.imageURL) {
+          const oldPath = path.join(__dirname, "..", oldImage.imageURL);
+          fs.unlink(oldPath, (err) => {
+            if (err) console.error("Error deleting old image:", err);
+          });
+        }
+
+        await prisma.image.update({
+          where: { id: Number(image.id) },
+          data: { imageURL: image.imageURL },
+        });
+      }
+    }
+
+    if (audios && audios.length > 0) {
+      for (const audio of audios) {
+        const oldAudio = await prisma.audio.findUnique({
+          where: { id: Number(audio.id) },
+        });
+
+        if (oldAudio && oldAudio.audioURL !== audio.audioURL) {
+          const oldPath = path.join(__dirname, "..", oldAudio.audioURL);
+          fs.unlink(oldPath, (err) => {
+            if (err) console.error("Error deleting old audio:", err);
+          });
+        }
+
+        await prisma.audio.update({
+          where: { id: Number(audio.id) },
+          data: { audioURL: audio.audioURL },
+        });
+      }
+    }
+
+    io.to(`channel_${groupId}`).emit("content edited", {
+      groupId,
+      messageId,
+      newContent,
+      videos,
+      images,
+      audios,
     });
 
     return res.status(200).json({ message: "" });
@@ -268,22 +360,58 @@ export async function deleteMessagesByAdmin(
       return res.status(400).json({ message: "" });
     }
 
-    if (groupAdmin.adminId === String(adminId)) {
-      for (const messageId of messagesId) {
-        await prisma.groupChats.delete({
-          where: {
-            id: Number(messageId),
-          },
+    if (groupAdmin.adminId !== String(adminId)) {
+      return res.status(400).json({ message: "" });
+    }
+
+    const contentsWithMedia = await prisma.channelContent.findMany({
+      where: {
+        id: { in: messagesId.map(Number) },
+      },
+      select: {
+        id: true,
+        video: { select: { id: true, videoURL: true } },
+        image: { select: { id: true, imageURL: true } },
+        audio: { select: { id: true, audioURL: true } },
+      },
+    });
+
+    for (const content of contentsWithMedia) {
+      for (const vid of content.video) {
+        const filePath = path.join(__dirname, "..", vid.videoURL);
+        fs.unlink(filePath, (err) => {
+          if (err) console.error("Error deleting video:", err);
         });
       }
 
-      io.to(`group_${groupId}`).emit("members_removed", {
-        messages: messagesId,
-      });
-      return res.status(200).json({ message: "" });
+      for (const img of content.image) {
+        const filePath = path.join(__dirname, "..", img.imageURL);
+        fs.unlink(filePath, (err) => {
+          if (err) console.error("Error deleting image:", err);
+        });
+      }
+
+      for (const aud of content.audio) {
+        const filePath = path.join(__dirname, "..", aud.audioURL);
+        fs.unlink(filePath, (err) => {
+          if (err) console.error("Error deleting audio:", err);
+        });
+      }
     }
 
-    return res.status(400).json({ message: "" });
+    await prisma.channelContent.deleteMany({
+      where: { id: { in: messagesId.map(Number) } },
+    });
+
+    io.to(`channel_${groupId}`).emit("content deleted", {
+      groupId,
+      deletedContents: contentsWithMedia,
+    });
+
+    io.to(`group_${groupId}`).emit("members_removed", {
+      messages: messagesId,
+    });
+    return res.status(200).json({ message: "" });
   } catch (error) {
     console.log(error);
     return res.status(400).json({ message: "" });
