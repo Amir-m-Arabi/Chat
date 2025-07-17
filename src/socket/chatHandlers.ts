@@ -1,7 +1,4 @@
 import { Server, Socket } from "socket.io";
-import { PrismaClient } from "@prisma/client";
-
-const prisma = new PrismaClient();
 
 export function chatHandlers(io: Server, socket: Socket) {
   // Join to private chat
@@ -10,7 +7,7 @@ export function chatHandlers(io: Server, socket: Socket) {
     socket.join(room);
     console.log(`✅ Socket ${socket.id} joined room ${room}`);
   });
-  
+
   // Leave private chat
   socket.on("leave_chat", (chatId) => {
     const room = `chat_${chatId}`;

@@ -14,6 +14,7 @@ import path from "path";
 
 const app = express();
 
+
 dotenv.config();
 
 const PORT = process.env.PORT || 4000;
@@ -48,6 +49,8 @@ const io = new Server(server, {
     origin: true,
   },
 });
+
+app.set("io" , io)
 
 io.on("connection", (socket) => {
   console.log("✅ New client connected:", socket.id);
